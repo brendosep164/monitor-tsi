@@ -553,24 +553,16 @@
       if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
     };
 
-    if (!ifr2) { processar(ops1); return; }
-
-    let pag2done = false;
-    const pag2timer = setTimeout(() => {
-      if (!pag2done) { pag2done = true; processar(ops1); }
-    }, 8000);
-
-    ifr2.onload = null;
-    ifr2.src = 'https://tsi-app.com/planejamento-operacional_2';
-    ifr2.onload = function() {
-      if (pag2done) return;
-      pag2done = true;
-      clearTimeout(pag2timer);
-      setTimeout(() => {
-        try { processar([...ops1, ...parseOpsFromDoc(ifr2.contentDocument)]); }
-        catch(e) { processar(ops1); }
-      }, 1500);
-    };
+    const ctrl2s   = new AbortController();
+    const timer2s   = setTimeout(() => { ctrl2s.abort(); processar(ops1); }, 8000);
+    fetch('https://tsi-app.com/planejamento-operacional_2', { credentials: 'include', signal: ctrl2s.signal })
+      .then(r => r.text())
+      .then(html => {
+        clearTimeout(timer2s);
+        const doc2 = new DOMParser().parseFromString(html, 'text/html');
+        processar([...ops1, ...parseOpsFromDoc(doc2)]);
+      })
+      .catch(() => { clearTimeout(timer2s); processar(ops1); });
   }
 
   function updateCells(op, d, old) {
@@ -1660,24 +1652,16 @@
       });
     };
 
-    if (!ifr2) { finalizar(ops1); return; }
-
-    let pag2done = false;
-    const pag2timer = setTimeout(() => {
-      if (!pag2done) { pag2done = true; finalizar(ops1); }
-    }, 8000);
-
-    ifr2.onload = null;
-    ifr2.src = 'https://tsi-app.com/planejamento-operacional_2';
-    ifr2.onload = function() {
-      if (pag2done) return;
-      pag2done = true;
-      clearTimeout(pag2timer);
-      setTimeout(() => {
-        try { finalizar([...ops1, ...parseOpsFromDoc(ifr2.contentDocument)]); }
-        catch(e) { finalizar(ops1); }
-      }, 1500);
-    };
+    const ctrl2   = new AbortController();
+    const timer2   = setTimeout(() => { ctrl2.abort(); finalizar(ops1); }, 8000);
+    fetch('https://tsi-app.com/planejamento-operacional_2', { credentials: 'include', signal: ctrl2.signal })
+      .then(r => r.text())
+      .then(html => {
+        clearTimeout(timer2);
+        const doc2 = new DOMParser().parseFromString(html, 'text/html');
+        finalizar([...ops1, ...parseOpsFromDoc(doc2)]);
+      })
+      .catch(() => { clearTimeout(timer2); finalizar(ops1); });
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────────────
