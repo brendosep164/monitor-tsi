@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.1
+// @version      11.3
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1042,6 +1042,70 @@
       .mon-list-table td.time { color: var(--mon-text-dim); font-family: 'Consolas', monospace; font-size: 10px; }
 
       .mon-empty-detail { color: var(--mon-text-faint); font-size: 11px; }
+
+      /* ── LISTAS LADO A LADO ── */
+      #mon-panel .mon-lists-grid {
+        display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 10px !important;
+        margin: 0 !important; padding: 0 !important;
+      }
+      #mon-panel .mon-list-panel {
+        border-radius: var(--mon-radius-sm) !important;
+        border: 1px solid var(--mon-border) !important;
+        overflow: hidden !important;
+        background: var(--mon-bg) !important;
+      }
+      #mon-panel .mon-list-panel-header {
+        display: flex !important; align-items: center !important; gap: 8px !important;
+        padding: 9px 12px !important;
+        background: var(--mon-surface) !important;
+        border-bottom: 1px solid var(--mon-border) !important;
+        margin: 0 !important;
+      }
+      #mon-panel .mon-list-panel-dot {
+        width: 6px !important; height: 6px !important; border-radius: 50% !important;
+        flex-shrink: 0 !important; display: inline-block !important;
+      }
+      #mon-panel .mon-list-panel-title {
+        font-size: 10px !important; font-weight: 700 !important; letter-spacing: 0.8px !important;
+        text-transform: uppercase !important; color: var(--mon-text-dim) !important; flex: 1 !important;
+        margin: 0 !important;
+      }
+      #mon-panel .mon-list-panel-count {
+        font-size: 10px !important; font-weight: 700 !important;
+        padding: 2px 7px !important; border-radius: 10px !important;
+        line-height: 1.4 !important;
+      }
+      #mon-panel .mon-list-panel-body {
+        max-height: 240px !important; overflow-y: auto !important;
+      }
+      #mon-panel .mon-list-row {
+        padding: 8px 12px !important;
+        border-bottom: 1px solid var(--mon-border) !important;
+        transition: background 0.1s !important;
+        display: block !important;
+      }
+      #mon-panel .mon-list-row:last-child { border-bottom: none !important; }
+      #mon-panel .mon-list-row:hover { background: var(--mon-surface) !important; }
+      #mon-panel .mon-list-row-name {
+        font-size: 11px !important; font-weight: 600 !important; color: var(--mon-text) !important;
+        margin-bottom: 3px !important; display: block !important;
+        white-space: normal !important;
+      }
+      #mon-panel .mon-list-row-meta {
+        display: flex !important; align-items: center !important; gap: 8px !important;
+      }
+      #mon-panel .mon-list-row-tipo {
+        font-size: 10px !important; color: var(--mon-text-dim) !important;
+      }
+      #mon-panel .mon-list-row-time {
+        font-size: 10px !important; color: var(--mon-text-faint) !important;
+        font-family: 'Consolas', monospace !important; margin-left: auto !important;
+      }
+      #mon-panel .mon-list-empty {
+        padding: 20px 12px !important; font-size: 11px !important;
+        color: var(--mon-text-faint) !important; text-align: center !important;
+        display: block !important;
+      }
       .mon-loading-detail {
         display: flex; align-items: center; gap: 8px;
         color: var(--mon-text-dim); font-size: 11px;
