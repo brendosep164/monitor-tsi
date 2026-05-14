@@ -572,7 +572,7 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     // STATUS: sempre atualiza com badge real
-    if (cells[7]) cells[7].innerHTML = situacaoBadge(d) + escalaEnviadaBadge(op);
+    if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
     if (old && old !== 'loading' && old.apontado < old.solicitado && d.apontado >= d.solicitado && d.apontado > 0) notify(op, d);
   }
 
@@ -922,7 +922,7 @@
         <td style="padding:8px 10px;color:#666;font-size:11px">${op.hora}</td>
         <td style="padding:8px 10px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${op.lider}</td>
         <td style="padding:8px 10px;text-align:center">
-          ${situacaoBadge(temDados ? d : null)}${escalaEnviadaBadge(op)}
+          ${situacaoBadge(temDados ? d : null, op)}${escalaEnviadaBadge(op)}
         </td>
         <td style="padding:8px 10px;text-align:center;color:#333;font-size:13px">${isExp ? '▴' : '▾'}</td>
       `;
@@ -1067,7 +1067,7 @@
     return '<span style="font-size:13px;margin-left:5px;cursor:default" title="Lista enviada ao cliente">📋</span>';
   }
 
-  function situacaoBadge(d) {
+  function situacaoBadge(d, op) {
     if (!d || d === 'loading') return '<span style="color:#2a2a2a;font-size:10px">—</span>';
     const escOk = d.escalado >= d.solicitado;
     const aptOk = d.apontado >= d.solicitado;
@@ -1081,7 +1081,8 @@
     if (aptOk && escOk)   return '<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">✓ COMPLETO</span>';
     if (d.apontado === 0 && d.escalado === 0) return '<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">✗ NENHUM</span>';
     // Lista enviada ao cliente: sempre verde, independente de escOk
-    if (d.apontado === 0 && d.listaEnviada) {
+    const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
+    if (d.apontado === 0 && listaEnviada) {
       return `<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
     }
     // Escala completa mas lista não enviada: roxo
