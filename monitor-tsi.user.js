@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.4
+// @version      10.5
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -133,10 +133,11 @@
     if (!img) return null;
     const src = img.getAttribute('src') || '';
     const title = img.getAttribute('data-original-title') || img.getAttribute('title') || '';
-    let status = 0; // 0=ausente
+    let status = 0;
     if (src.includes('statusbubble_1')) status = 1; // verde
     else if (src.includes('statusbubble_2')) status = 2; // amarelo
     else if (src.includes('statusbubble_3')) status = 3; // vermelho
+    else return null; // não é bolinha de status
     return { status, title };
   }
 
@@ -155,13 +156,12 @@
       }
       const g = i => cells[i]?.innerText?.trim() || '';
 
-      // Lê bolinhas P1-P8: são os imgs com statusbubble nas células após a coluna de ANOTAÇÕES
+      // Lê APENAS imgs com statusbubble_ (ignora ico_edit e outros)
       const bubbles = [];
-      row.querySelectorAll('td img[src*="statusbubble_"]').forEach(img => {
-        bubbles.push(parseBubble(img));
+      row.querySelectorAll('img[src*="statusbubble_"]').forEach(img => {
+        const b = parseBubble(img);
+        if (b) bubbles.push(b);
       });
-      // Garante array de 8 (preenche null se faltar)
-      while (bubbles.length < 8) bubbles.push(null);
 
       ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider: g(11), status: g(24).toLowerCase(), time: g(8), id, bubbles });
     });
@@ -789,6 +789,7 @@
       const prevCache  = apontCache; // cache em memória atual (se já estava rodando)
 
       operations  = ops;
+      window._monOps = ops; // debug
       // Mescla: memória > sessionStorage (memória é mais recente se já estava rodando)
       apontCache  = {};
       ops.forEach(o => {
@@ -1047,8 +1048,9 @@
 
   function escalaEnviadaBadge(op) {
     const b = op.bubbles;
-    if (!b || b.length < 8) return '';
-    const todasVerdes = b.slice(0, 8).every(p => p && p.status === 1);
+    if (!b || b.length === 0) return '';
+    // Todas as bolinhas encontradas precisam ser verdes
+    const todasVerdes = b.every(p => p && p.status === 1);
     if (!todasVerdes) return '';
     return '<span style="font-size:11px;margin-left:4px" title="Escala enviada">✅</span>';
   }
