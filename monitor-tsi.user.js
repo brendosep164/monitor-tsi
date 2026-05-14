@@ -35,7 +35,7 @@
   let watchdogTimer = null;
 
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
-  const CACHE_KEY = '_monCache_v1';
+  const CACHE_KEY = '_monCache_v2';
   const CACHE_TTL = 5 * 60 * 1000; // 5 min: dados de escala/apontamento considerados frescos
 
   function cacheSave() {
@@ -1080,10 +1080,13 @@
     // Ops dentro da janela: mostra status completo com apontamentos
     if (aptOk && escOk)   return '<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">✓ COMPLETO</span>';
     if (d.apontado === 0 && d.escalado === 0) return '<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">✗ NENHUM</span>';
-    // Escala completa mas sem apontamentos: verde se lista já foi enviada, senão roxo
+    // Lista enviada ao cliente: sempre verde, independente de escOk
+    if (d.apontado === 0 && d.listaEnviada) {
+      return `<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
+    }
+    // Escala completa mas lista não enviada: roxo
     if (d.apontado === 0 && escOk) {
-      const cor = d.listaEnviada ? '#4ade80' : '#818cf8';
-      return `<span style="color:${cor};font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
+      return `<span style="color:#818cf8;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
     }
     if (d.apontado === 0) return `<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
     return `<span style="color:#fb923c;font-size:10px;font-weight:700;letter-spacing:0.5px">△ APT ${d.apontado}/${d.solicitado}</span>`;
