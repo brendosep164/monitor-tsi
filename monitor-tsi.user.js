@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.4
+// @version      11.5
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1098,8 +1098,12 @@
         font-size: 10px !important; color: var(--mon-text-dim) !important;
       }
       #mon-panel .mon-list-row-time {
-        font-size: 10px !important; color: var(--mon-text-faint) !important;
+        font-size: 11px !important; color: #f59e0b !important;
         font-family: 'Consolas', monospace !important; margin-left: auto !important;
+        background: rgba(245,158,11,0.12) !important;
+        border: 1px solid rgba(245,158,11,0.3) !important;
+        border-radius: 4px !important; padding: 2px 8px !important;
+        letter-spacing: 0.5px !important; font-weight: 700 !important;
       }
       #mon-panel .mon-list-empty {
         padding: 20px 12px !important; font-size: 11px !important;
