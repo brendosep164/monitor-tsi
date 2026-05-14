@@ -859,8 +859,9 @@
       }
       .mon-chave {
         font-family: 'Consolas', monospace;
-        font-size: 10px; color: var(--mon-text-faint);
+        font-size: 11px; color: var(--mon-text-dim);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        letter-spacing: 0.3px;
       }
       .mon-sigla {
         font-weight: 700; font-size: 13px; color: #e0e0f0;
@@ -924,10 +925,10 @@
         display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
       }
       .mon-key-chip {
-        font-family: 'Consolas', monospace; font-size: 10px;
-        color: var(--mon-text-dim); background: var(--mon-surface2);
+        font-family: 'Consolas', monospace; font-size: 11px;
+        color: var(--mon-text); background: var(--mon-surface2);
         border: 1px solid var(--mon-border2); border-radius: 4px;
-        padding: 3px 8px;
+        padding: 3px 8px; letter-spacing: 0.3px;
       }
       .mon-copy-btn {
         background: transparent; border: 1px solid var(--mon-border);
