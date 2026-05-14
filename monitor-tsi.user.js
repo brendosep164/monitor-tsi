@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.3
+// @version      10.4
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -129,6 +129,17 @@
   function naJanela(op) { return monitoradas.has(monKey(op)) || dentroJanela(op); }
 
   // ── PARSER DE OPS ────────────────────────────────────────────────────────────
+  function parseBubble(img) {
+    if (!img) return null;
+    const src = img.getAttribute('src') || '';
+    const title = img.getAttribute('data-original-title') || img.getAttribute('title') || '';
+    let status = 0; // 0=ausente
+    if (src.includes('statusbubble_1')) status = 1; // verde
+    else if (src.includes('statusbubble_2')) status = 2; // amarelo
+    else if (src.includes('statusbubble_3')) status = 3; // vermelho
+    return { status, title };
+  }
+
   function parseOpsFromDoc(doc) {
     const ops = [];
     const mainTable = doc.querySelector('table tbody');
@@ -143,7 +154,16 @@
         if (match) id = match[1];
       }
       const g = i => cells[i]?.innerText?.trim() || '';
-      ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider: g(11), status: g(24).toLowerCase(), time: g(8), id });
+
+      // Lê bolinhas P1-P8: são os imgs com statusbubble nas células após a coluna de ANOTAÇÕES
+      const bubbles = [];
+      row.querySelectorAll('td img[src*="statusbubble_"]').forEach(img => {
+        bubbles.push(parseBubble(img));
+      });
+      // Garante array de 8 (preenche null se faltar)
+      while (bubbles.length < 8) bubbles.push(null);
+
+      ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider: g(11), status: g(24).toLowerCase(), time: g(8), id, bubbles });
     });
     return ops;
   }
@@ -537,7 +557,7 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     // STATUS: sempre atualiza com badge real
-    if (cells[7]) cells[7].innerHTML = situacaoBadge(d);
+    if (cells[7]) cells[7].innerHTML = situacaoBadge(d) + escalaEnviadaBadge(op);
     if (old && old !== 'loading' && old.apontado < old.solicitado && d.apontado >= d.solicitado && d.apontado > 0) notify(op, d);
   }
 
@@ -886,7 +906,7 @@
         <td style="padding:8px 10px;color:#666;font-size:11px">${op.hora}</td>
         <td style="padding:8px 10px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${op.lider}</td>
         <td style="padding:8px 10px;text-align:center">
-          ${situacaoBadge(temDados ? d : null)}
+          ${situacaoBadge(temDados ? d : null)}${escalaEnviadaBadge(op)}
         </td>
         <td style="padding:8px 10px;text-align:center;color:#333;font-size:13px">${isExp ? '▴' : '▾'}</td>
       `;
@@ -1023,6 +1043,14 @@
     const pct = qtd > 0 ? Math.min(100, Math.round((d.apontado / qtd) * 100)) : 0;
     const cor = pct >= 100 ? '#4ade80' : pct > 0 ? '#fb923c' : '#2a2a2a';
     return `<div style="font-size:12px;font-weight:700;color:${cor}">${d.apontado}/${qtd}</div><div class="mon-bar-wrap"><div class="mon-bar-inner" style="--bar-w:${pct}%;background:${cor}"></div></div>`;
+  }
+
+  function escalaEnviadaBadge(op) {
+    const b = op.bubbles;
+    if (!b || b.length < 8) return '';
+    const todasVerdes = b.slice(0, 8).every(p => p && p.status === 1);
+    if (!todasVerdes) return '';
+    return '<span style="font-size:11px;margin-left:4px" title="Escala enviada">✅</span>';
   }
 
   function situacaoBadge(d) {
