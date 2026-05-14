@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.6
+// @version      11.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -36,7 +36,7 @@
 
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
   const CACHE_KEY = '_monCache_v2';
-  const CACHE_TTL = 5 * 60 * 1000; // 5 min: dados de escala/apontamento considerados frescos
+  const CACHE_TTL = 5 * 60 * 1000;
 
   function cacheSave() {
     try {
@@ -82,7 +82,6 @@
     const ifr = document.getElementById(ifrId);
     if (ifr) {
       ifr.onload = null;
-      // Reseta o src para evitar que um onload atrasado dispare na próxima operação
       try { ifr.src = 'about:blank'; } catch(e) {}
     }
     setTimeout(processQueue, 50);
@@ -105,7 +104,6 @@
           releaseIfr(ifrId);
         }
       });
-      // Garante que a fila não trava mesmo se nenhum iframe disparar processQueue
       if (fetchQueue.length > 0 && getAvailableIframe()) {
         processQueue();
       }
@@ -134,10 +132,10 @@
     const src = img.getAttribute('src') || '';
     const title = img.getAttribute('data-original-title') || img.getAttribute('title') || '';
     let status = 0;
-    if (src.includes('statusbubble_1')) status = 1; // verde
-    else if (src.includes('statusbubble_2')) status = 2; // amarelo
-    else if (src.includes('statusbubble_3')) status = 3; // vermelho
-    else return null; // não é bolinha de status
+    if (src.includes('statusbubble_1')) status = 1;
+    else if (src.includes('statusbubble_2')) status = 2;
+    else if (src.includes('statusbubble_3')) status = 3;
+    else return null;
     return { status, title };
   }
 
@@ -155,14 +153,11 @@
         if (match) id = match[1];
       }
       const g = i => cells[i]?.innerText?.trim() || '';
-
-      // Lê APENAS imgs com statusbubble_ (ignora ico_edit e outros)
       const bubbles = [];
       row.querySelectorAll('img[src*="statusbubble_"]').forEach(img => {
         const b = parseBubble(img);
         if (b) bubbles.push(b);
       });
-
       ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider: g(11), status: g(24).toLowerCase(), time: g(8), id, bubbles });
     });
     return ops;
@@ -183,9 +178,9 @@
       const btn = document.getElementById('mon-notif-btn');
       if (perm === 'granted') {
         new Notification('✅ Monitor TSI ativado!', { body: 'Você receberá alertas.', icon: AVATAR_URL });
-        if (btn) { btn.textContent = '🔔 ativo'; btn.style.color = '#4ade80'; }
+        if (btn) { btn.textContent = 'Notif. ativa'; btn.dataset.state = 'on'; }
       } else {
-        if (btn) { btn.textContent = '🔕 bloqueado'; btn.style.color = '#f87171'; }
+        if (btn) { btn.textContent = 'Bloqueado'; btn.dataset.state = 'off'; }
       }
     });
   }
@@ -209,12 +204,12 @@
     const r    = 22, circ = 2 * Math.PI * r;
     circle.style.strokeDashoffset = circ - (pct / 100) * circ;
     if (pct >= 100) {
-      circle.style.stroke   = '#4ade80';
+      circle.style.stroke   = 'var(--mon-green)';
       overlay.style.opacity = '0';
       text.style.display    = 'none';
       if (img) { img.style.animation = 'none'; img.style.transform = 'none'; }
     } else {
-      circle.style.stroke   = '#fb923c';
+      circle.style.stroke   = 'var(--mon-amber)';
       overlay.style.opacity = '0.55';
       text.style.display    = 'flex';
       text.textContent      = pct + '%';
@@ -229,7 +224,6 @@
 
   function loadUrl(ifr, url, timeout, onDone) {
     let fired = false;
-
     const fire = (result) => {
       if (fired) return;
       fired = true;
@@ -237,14 +231,11 @@
       ifr.onload = null;
       onDone(result);
     };
-
     const timer = setTimeout(() => {
       console.warn('[Monitor] timeout', url.split('?')[0].split('/').pop());
       fire(null);
     }, timeout);
-
     ifr.onload = function() {
-      // Ignora disparo do about:blank que vem do releaseIfr anterior
       try {
         const href = ifr.contentDocument && ifr.contentDocument.location && ifr.contentDocument.location.href;
         if (!href || href === 'about:blank') return;
@@ -254,12 +245,7 @@
         catch(e) { fire(null); }
       }, 1800);
     };
-
-    try {
-      ifr.src = url;
-    } catch(e) {
-      fire(null);
-    }
+    try { ifr.src = url; } catch(e) { fire(null); }
   }
 
   function processQueue() {
@@ -289,30 +275,21 @@
       });
     };
 
-    if (!op.id) {
-      releaseIfr(ifrId);
-      return;
-    }
+    if (!op.id) { releaseIfr(ifrId); return; }
 
-    // Preserva cache antigo visível enquanto busca — só seta 'loading' se não tem cache
     const cacheAnterior = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
     if (!cacheAnterior) apontCache[op.id] = 'loading';
 
-    // ── Passo 1: modal da operação ──────────────────────────────────────────
     loadUrl(ifr, 'https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1', 14000, (doc) => {
       if (!doc) { fallback([]); return; }
 
-      // Lê p1–p8: se todos os 8 primeiros radios "Sim" estiverem marcados = lista enviada
       let listaEnviada = false;
       try {
         let etapa = 0, confirmadas = 0;
         doc.querySelectorAll('table tbody tr').forEach(row => {
           if (etapa >= 8) return;
           const radios = row.querySelectorAll('input[type="radio"]');
-          if (radios.length >= 2) {
-            etapa++;
-            if (radios[0].checked) confirmadas++;
-          }
+          if (radios.length >= 2) { etapa++; if (radios[0].checked) confirmadas++; }
         });
         listaEnviada = etapa >= 8 && confirmadas >= 8;
       } catch(e) {}
@@ -332,7 +309,6 @@
         }
       } catch(e) { fallback([]); return; }
 
-      // ── Passo 2: escala (TODAS as ops, dentro ou fora da janela) ─────────
       loadUrl(ifr, 'https://tsi-app.com/' + escalaHref, 14000, (doc2) => {
         const escalados = [], pdfLinks = [], xlsLinks = [];
         if (doc2) {
@@ -351,13 +327,11 @@
               });
             }
             const xlsLabels = ['Layout 1 (SHEIN)','Layout 2 (Cordovil)','Layout 3 (SBC)','Layout 4 (SBF)','Layout 5 (Endereço)','Layout 6 (KISOC)'];
-            // PDF: "Lista p/ Assinaturas" = escalaprelistaLiderPDF_
             doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.innerText.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') }));
             doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.innerText.trim(), href: a.getAttribute('href') }));
           } catch(e) {}
         }
 
-        // Fora da janela: registra só escala, sem buscar apontamentos
         if (!naJanela(op)) {
           release({
             solicitado: op.qtd, escalado: escalados.length, apontado: 0,
@@ -367,7 +341,6 @@
           return;
         }
 
-        // ── Passo 3: apontamentos (só ops dentro da janela de 3h) ─────────
         loadUrl(ifr, 'https://tsi-app.com/' + eaptHref, 14000, (doc3) => {
           const colaboradores = [];
           if (doc3) {
@@ -427,7 +400,7 @@
 
     const origTxt = btnEl.innerHTML;
     btnEl.disabled = true;
-    btnEl.innerHTML = '⏳ enviando...';
+    btnEl.innerHTML = 'Enviando…';
     btnEl.style.opacity = '0.6';
 
     let done = false;
@@ -435,9 +408,9 @@
       if (done) return; done = true;
       btnEl.disabled = false;
       btnEl.innerHTML = '✗ ' + msg;
-      btnEl.style.color = '#f87171';
+      btnEl.className = btnEl.className.replace('mon-send-btn', 'mon-send-btn mon-send-btn--err');
       btnEl.style.opacity = '1';
-      setTimeout(() => { btnEl.innerHTML = origTxt; btnEl.style.color = ''; }, 3000);
+      setTimeout(() => { btnEl.innerHTML = origTxt; btnEl.className = btnEl.className.replace(' mon-send-btn--err', ''); }, 3000);
     };
     const safetyTimer = setTimeout(() => fail('timeout'), 25000);
 
@@ -469,8 +442,7 @@
               if (done) return;
               done = true;
               clearTimeout(safetyTimer);
-              btnEl.innerHTML = '✓ enviado!';
-              btnEl.style.color = '#4ade80';
+              btnEl.innerHTML = '✓ Enviado!';
               btnEl.style.opacity = '1';
               setTimeout(() => window.location.reload(), 1500);
             }, 2500);
@@ -513,9 +485,7 @@
       monitoradas.delete(monKey(o));
     });
 
-    ops.forEach(o => {
-      if (dentroJanela(o)) monitoradas.add(monKey(o));
-    });
+    ops.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
     operations = ops;
     renderTable();
 
@@ -544,7 +514,7 @@
             if (expanded.has(op.chave)) {
               const idx = operations.findIndex(o => o.chave === op.chave);
               const det = document.getElementById('det-' + idx);
-              if (det) det.querySelector('div').innerHTML = renderDetail(op);
+              if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
             }
           });
         } else {
@@ -559,7 +529,7 @@
     });
 
     const sub = document.getElementById('mon-sub');
-    if (sub) sub.textContent = 'sync ' + new Date().toLocaleTimeString('pt-BR');
+    if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
   }
 
   function updateCells(op, d, old) {
@@ -571,7 +541,6 @@
     if (naJanela(op)) {
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
-    // STATUS: sempre atualiza com badge real
     if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
     if (old && old !== 'loading' && old.apontado < old.solicitado && d.apontado >= d.solicitado && d.apontado > 0) notify(op, d);
   }
@@ -580,14 +549,12 @@
   function initControls(panel) {
     panel.style.position = 'fixed';
     const rh = document.createElement('div');
-    rh.style.cssText = 'position:absolute;left:0;top:0;width:5px;height:100%;cursor:ew-resize;z-index:10;background:transparent;';
-    rh.addEventListener('mouseover', () => rh.style.background = 'rgba(255,255,255,0.08)');
-    rh.addEventListener('mouseout',  () => rh.style.background = 'transparent');
+    rh.className = 'mon-resize-handle';
     rh.addEventListener('mousedown', e => {
       e.preventDefault();
       const startX = e.clientX, startW = panel.offsetWidth;
       document.body.style.userSelect = 'none';
-      const mv = e => { panel.style.width = Math.min(Math.max(startW + (startX - e.clientX), 400), window.innerWidth - 80) + 'px'; };
+      const mv = e => { panel.style.width = Math.min(Math.max(startW + (startX - e.clientX), 420), window.innerWidth - 80) + 'px'; };
       const up = () => { document.body.style.userSelect = ''; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
       document.addEventListener('mousemove', mv);
       document.addEventListener('mouseup', up);
@@ -596,7 +563,6 @@
 
     const header = panel.querySelector('#mon-header');
     if (header) {
-      header.style.cursor = 'grab';
       header.addEventListener('mousedown', e => {
         if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
         e.preventDefault();
@@ -609,7 +575,12 @@
           panel.style.top   = Math.max(0, Math.min(e.clientY - oy, window.innerHeight - 60)) + 'px';
           panel.style.right = 'auto';
         };
-        const up = () => { header.style.cursor = 'grab'; document.body.style.userSelect = ''; document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+        const up = () => {
+          header.style.cursor = '';
+          document.body.style.userSelect = '';
+          document.removeEventListener('mousemove', mv);
+          document.removeEventListener('mouseup', up);
+        };
         document.addEventListener('mousemove', mv);
         document.addEventListener('mouseup', up);
       });
@@ -624,7 +595,7 @@
     minimized = !minimized;
     body.style.display = minimized ? 'none' : '';
     panel.style.height = minimized ? 'auto' : '100vh';
-    btn.textContent    = minimized ? '□' : '—';
+    btn.innerHTML = minimized ? '&#9633;' : '&#8212;';
   };
 
   // ── BOTÃO FLUTUANTE ───────────────────────────────────────────────────────────
@@ -633,132 +604,567 @@
     if (window.self !== window.top) return;
     const btn = document.createElement('button');
     btn.id = 'btn-mon';
-    btn.innerHTML = '▶ MONITOR';
-    btn.style.cssText = `
-      position:fixed;bottom:16px;right:16px;z-index:99999;
-      background:#0f0f0f;color:#e0e0e0;border:1px solid #333;
-      padding:8px 16px;border-radius:6px;font-size:12px;
-      font-family:monospace;font-weight:700;cursor:pointer;
-      letter-spacing:1px;box-shadow:0 2px 12px rgba(0,0,0,0.6);
-      transition:all 0.2s;
-    `;
-    btn.onmouseover = () => btn.style.background = '#1a1a1a';
-    btn.onmouseout  = () => btn.style.background = '#0f0f0f';
+    btn.innerHTML = `<span class="mon-fab-dot"></span> Monitor`;
     btn.onclick = toggleMonitor;
     document.body.appendChild(btn);
+  }
+
+  // ── ESTILOS ───────────────────────────────────────────────────────────────────
+  function injectStyles() {
+    if (document.getElementById('mon-style')) return;
+    const s = document.createElement('style');
+    s.id = 'mon-style';
+    s.textContent = `
+      /* ── VARIÁVEIS ── */
+      :root {
+        --mon-bg:        #0c0c0f;
+        --mon-surface:   #111116;
+        --mon-surface2:  #16161d;
+        --mon-border:    #1f1f2e;
+        --mon-border2:   #2a2a3a;
+        --mon-text:      #c8c8d8;
+        --mon-text-dim:  #6b6b88;
+        --mon-text-faint:#32324a;
+        --mon-green:     #34d474;
+        --mon-green-bg:  rgba(52,212,116,0.08);
+        --mon-amber:     #f59e0b;
+        --mon-amber-bg:  rgba(245,158,11,0.08);
+        --mon-red:       #f87171;
+        --mon-red-bg:    rgba(248,113,113,0.08);
+        --mon-indigo:    #818cf8;
+        --mon-indigo-bg: rgba(129,140,248,0.1);
+        --mon-radius:    10px;
+        --mon-radius-sm: 6px;
+      }
+
+      /* ── KEYFRAMES ── */
+      @keyframes mon-shake {
+        0%   { transform: rotate(-8deg) scale(1.04); }
+        100% { transform: rotate(8deg)  scale(1.04); }
+      }
+      @keyframes mon-bar-fill {
+        from { width: 0; }
+        to   { width: var(--bar-w); }
+      }
+      @keyframes mon-fadein {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes mon-pulse-dot {
+        0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+        50%       { opacity: 0.7; box-shadow: 0 0 0 4px transparent; }
+      }
+      @keyframes mon-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes mon-row-in {
+        from { opacity: 0; transform: translateX(6px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+
+      /* ── BOTÃO FLUTUANTE ── */
+      #btn-mon {
+        position: fixed; bottom: 20px; right: 20px; z-index: 99999;
+        display: flex; align-items: center; gap: 8px;
+        background: var(--mon-surface);
+        color: var(--mon-text);
+        border: 1px solid var(--mon-border2);
+        padding: 9px 18px; border-radius: 24px;
+        font-size: 12px; font-family: 'Segoe UI', system-ui, sans-serif;
+        font-weight: 600; cursor: pointer; letter-spacing: 0.5px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+        transition: all 0.2s;
+      }
+      #btn-mon:hover {
+        background: var(--mon-surface2);
+        border-color: var(--mon-border2);
+        box-shadow: 0 6px 32px rgba(0,0,0,0.6);
+        transform: translateY(-1px);
+      }
+      .mon-fab-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--mon-green);
+        display: inline-block;
+        animation: mon-pulse-dot 2s ease-in-out infinite;
+      }
+
+      /* ── PAINEL ── */
+      #mon-panel {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 12px;
+        background: var(--mon-bg);
+        color: var(--mon-text);
+        border-left: 1px solid var(--mon-border);
+        box-shadow: -12px 0 60px rgba(0,0,0,0.7);
+      }
+
+      /* ── RESIZE HANDLE ── */
+      .mon-resize-handle {
+        position: absolute; left: 0; top: 0; width: 4px; height: 100%;
+        cursor: ew-resize; z-index: 10; background: transparent;
+        transition: background 0.15s;
+      }
+      .mon-resize-handle:hover { background: var(--mon-indigo); opacity: 0.4; }
+
+      /* ── SCROLLBAR ── */
+      #mon-panel ::-webkit-scrollbar { width: 3px; }
+      #mon-panel ::-webkit-scrollbar-track { background: transparent; }
+      #mon-panel ::-webkit-scrollbar-thumb { background: var(--mon-border2); border-radius: 2px; }
+
+      /* ── HEADER ── */
+      #mon-header {
+        background: var(--mon-surface);
+        border-bottom: 1px solid var(--mon-border);
+        padding: 0 16px;
+        height: 58px;
+        display: flex; align-items: center; justify-content: space-between;
+        flex-shrink: 0; user-select: none; cursor: grab;
+      }
+      #mon-header:active { cursor: grabbing; }
+      .mon-logo {
+        display: flex; align-items: center; gap: 10px;
+      }
+      .mon-logo-icon {
+        width: 30px; height: 30px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--mon-indigo), #6366f1);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px; color: #fff; font-weight: 700;
+        flex-shrink: 0;
+      }
+      .mon-logo-text {
+        display: flex; flex-direction: column; gap: 1px;
+      }
+      .mon-logo-title {
+        font-size: 12px; font-weight: 700; color: #e8e8f0;
+        letter-spacing: 0.8px; text-transform: uppercase;
+      }
+      .mon-logo-sub {
+        font-size: 10px; color: var(--mon-text-dim);
+      }
+
+      /* ── STATUS PILL ── */
+      .mon-status-pill {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 10px; border-radius: 20px;
+        border: 1px solid;
+        font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+      }
+      .mon-status-pill[data-state="live"] {
+        color: var(--mon-green); border-color: rgba(52,212,116,0.25);
+        background: var(--mon-green-bg);
+      }
+      .mon-status-pill[data-state="sync"] {
+        color: var(--mon-amber); border-color: rgba(245,158,11,0.25);
+        background: var(--mon-amber-bg);
+      }
+      .mon-status-pill[data-state="offline"] {
+        color: var(--mon-text-faint); border-color: var(--mon-border);
+        background: transparent;
+      }
+      .mon-status-dot {
+        width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+      }
+      .mon-status-pill[data-state="live"] .mon-status-dot {
+        animation: mon-pulse-dot 1.8s ease-in-out infinite;
+      }
+      .mon-status-pill[data-state="sync"] .mon-status-dot {
+        animation: mon-spin 1s linear infinite;
+        border-radius: 0;
+        clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      }
+
+      /* ── BOTÕES HEADER ── */
+      .mon-hdr-btn {
+        height: 30px; padding: 0 12px; border-radius: var(--mon-radius-sm);
+        border: 1px solid var(--mon-border2); background: transparent;
+        color: var(--mon-text-dim); font-size: 11px; font-family: inherit;
+        font-weight: 500; cursor: pointer; transition: all 0.15s;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .mon-hdr-btn:hover {
+        background: var(--mon-surface2); color: var(--mon-text);
+        border-color: var(--mon-border2);
+      }
+      .mon-hdr-btn--green { color: var(--mon-green); border-color: rgba(52,212,116,0.25); }
+      .mon-hdr-btn--green:hover { background: var(--mon-green-bg); color: var(--mon-green); }
+      .mon-hdr-btn[data-state="on"] { color: var(--mon-green); }
+      .mon-hdr-btn[data-state="off"] { color: var(--mon-red); }
+
+      .mon-icon-btn {
+        width: 30px; height: 30px; border-radius: var(--mon-radius-sm);
+        border: 1px solid var(--mon-border); background: transparent;
+        color: var(--mon-text-dim); font-size: 14px; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+      }
+      .mon-icon-btn:hover { background: var(--mon-surface2); color: var(--mon-text); }
+
+      /* ── MÉTRICAS ── */
+      #mon-metrics {
+        display: grid; grid-template-columns: repeat(4, 1fr);
+        border-bottom: 1px solid var(--mon-border);
+        flex-shrink: 0;
+      }
+      .mon-metric {
+        padding: 14px 16px; position: relative;
+        border-right: 1px solid var(--mon-border);
+      }
+      .mon-metric:last-child { border-right: none; }
+      .mon-metric-label {
+        font-size: 9px; color: var(--mon-text-dim); letter-spacing: 1px;
+        text-transform: uppercase; margin-bottom: 6px; font-weight: 600;
+      }
+      .mon-metric-val {
+        font-size: 26px; font-weight: 700; line-height: 1;
+        color: var(--mon-text-dim);
+      }
+      .mon-metric-val.green  { color: var(--mon-green); }
+      .mon-metric-val.amber  { color: var(--mon-amber); }
+      .mon-metric-val.red    { color: var(--mon-red); }
+      .mon-metric-bar {
+        position: absolute; bottom: 0; left: 0;
+        height: 2px; background: currentColor; opacity: 0.3;
+        transition: width 0.8s ease;
+      }
+
+      /* ── TABELA ── */
+      #mon-table-wrap { flex: 1; overflow-y: auto; }
+      #mon-table {
+        width: 100%; border-collapse: collapse; font-size: 12px;
+        table-layout: fixed;
+      }
+      #mon-table thead th {
+        padding: 8px 12px;
+        text-align: left; font-size: 9px; font-weight: 700;
+        color: var(--mon-text-faint); letter-spacing: 1.2px;
+        text-transform: uppercase;
+        background: var(--mon-surface);
+        border-bottom: 1px solid var(--mon-border);
+        position: sticky; top: 0; z-index: 2;
+      }
+      #mon-table thead th.center { text-align: center; }
+
+      /* ── ROWS ── */
+      tr.op-row {
+        border-bottom: 1px solid var(--mon-border);
+        cursor: pointer;
+        transition: background 0.12s;
+        animation: mon-row-in 0.25s ease both;
+      }
+      tr.op-row:hover td { background: var(--mon-surface); }
+      tr.op-row.is-expanded td { background: var(--mon-surface2); }
+      tr.op-row td {
+        padding: 10px 12px; vertical-align: middle;
+        background: transparent; transition: background 0.12s;
+      }
+      .mon-chave {
+        font-family: 'Consolas', monospace;
+        font-size: 10px; color: var(--mon-text-faint);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .mon-sigla {
+        font-weight: 700; font-size: 13px; color: #e0e0f0;
+      }
+      .mon-site {
+        font-size: 11px; color: var(--mon-text-dim);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .mon-hora {
+        font-family: 'Consolas', monospace;
+        font-size: 12px; color: var(--mon-text);
+        letter-spacing: 0.5px;
+      }
+      .mon-lider {
+        font-size: 11px; color: var(--mon-text-dim);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .mon-chevron { color: var(--mon-text-faint); font-size: 10px; transition: transform 0.2s; }
+      tr.op-row.is-expanded .mon-chevron { transform: rotate(180deg); }
+
+      /* ── PROGRESS BADGE ── */
+      .mon-prog-cell { text-align: center; }
+      .mon-prog-num {
+        font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+      }
+      .mon-prog-bar {
+        height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px;
+        overflow: hidden; margin-top: 4px;
+      }
+      .mon-prog-fill {
+        height: 100%; border-radius: 2px;
+        animation: mon-bar-fill 0.7s cubic-bezier(0.4,0,0.2,1) both;
+        width: var(--bar-w);
+      }
+      .mon-prog-pending { font-size: 11px; color: var(--mon-text-faint); }
+      .mon-prog-na { font-size: 10px; color: var(--mon-text-faint); }
+
+      /* ── STATUS BADGES ── */
+      .mon-status-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 3px 8px; border-radius: 20px;
+        font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+        white-space: nowrap;
+      }
+      .mon-status-badge.completo  { color: var(--mon-green);  background: var(--mon-green-bg); }
+      .mon-status-badge.parcial   { color: var(--mon-amber);  background: var(--mon-amber-bg); }
+      .mon-status-badge.esc-ok    { color: var(--mon-indigo); background: var(--mon-indigo-bg); }
+      .mon-status-badge.nenhum    { color: var(--mon-red);    background: var(--mon-red-bg); }
+      .mon-status-badge.neutro    { color: var(--mon-text-faint); background: transparent; }
+      .mon-envelope { font-size: 12px; margin-left: 4px; opacity: 0.8; }
+
+      /* ── DETALHE EXPANDIDO ── */
+      tr.op-detail td { padding: 0 !important; border-bottom: 1px solid var(--mon-border); }
+      .mon-detail-inner {
+        background: var(--mon-bg);
+        border-top: 1px solid var(--mon-border);
+        padding: 16px;
+        animation: mon-fadein 0.2s ease;
+      }
+      .mon-detail-header {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+      }
+      .mon-key-chip {
+        font-family: 'Consolas', monospace; font-size: 10px;
+        color: var(--mon-text-dim); background: var(--mon-surface2);
+        border: 1px solid var(--mon-border2); border-radius: 4px;
+        padding: 3px 8px;
+      }
+      .mon-copy-btn {
+        background: transparent; border: 1px solid var(--mon-border);
+        color: var(--mon-text-faint); padding: 3px 9px;
+        border-radius: 4px; font-size: 10px; font-family: inherit;
+        cursor: pointer; transition: all 0.15s;
+      }
+      .mon-copy-btn:hover { background: var(--mon-surface2); color: var(--mon-text); }
+
+      .mon-stat-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        margin-bottom: 14px;
+      }
+      .mon-stat-card {
+        background: var(--mon-surface);
+        border: 1px solid var(--mon-border);
+        border-radius: var(--mon-radius-sm);
+        padding: 12px 14px;
+      }
+      .mon-stat-card-header {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 8px;
+      }
+      .mon-stat-card-label {
+        font-size: 9px; color: var(--mon-text-dim); letter-spacing: 1px;
+        text-transform: uppercase; font-weight: 700;
+      }
+      .mon-stat-card-num {
+        font-size: 18px; font-weight: 700;
+      }
+      .mon-stat-card-sub {
+        font-size: 10px; color: var(--mon-text-faint);
+        margin-left: 2px;
+      }
+      .mon-stat-card-pct { font-size: 9px; color: var(--mon-text-faint); margin-top: 4px; }
+
+      /* ── ACTIONS ── */
+      .mon-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+
+      .mon-send-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--mon-indigo-bg);
+        border: 1px solid rgba(129,140,248,0.3);
+        color: var(--mon-indigo);
+        padding: 6px 14px; border-radius: var(--mon-radius-sm);
+        font-size: 11px; font-family: inherit; font-weight: 600;
+        cursor: pointer; letter-spacing: 0.3px;
+        transition: all 0.15s;
+      }
+      .mon-send-btn:hover { background: rgba(129,140,248,0.18); }
+      .mon-send-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+      .mon-send-btn--err { color: var(--mon-red) !important; border-color: rgba(248,113,113,0.3) !important; background: var(--mon-red-bg) !important; }
+
+      .mon-dl-btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: transparent;
+        border: 1px solid var(--mon-border2);
+        color: var(--mon-text-dim);
+        padding: 5px 12px; border-radius: var(--mon-radius-sm);
+        font-size: 11px; font-family: inherit;
+        cursor: pointer; transition: all 0.15s; text-decoration: none;
+      }
+      .mon-dl-btn:hover { background: var(--mon-surface2); color: var(--mon-text); }
+
+      .mon-xls-menu { position: relative; display: inline-block; }
+      .mon-xls-dropdown {
+        display: none; position: absolute; bottom: 100%; left: 0;
+        margin-bottom: 6px;
+        background: var(--mon-surface); border: 1px solid var(--mon-border2);
+        border-radius: var(--mon-radius-sm); padding: 4px;
+        z-index: 999; min-width: 190px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+      }
+      .mon-xls-menu:hover .mon-xls-dropdown { display: block; }
+      .mon-xls-dropdown a {
+        display: block; padding: 7px 10px; color: var(--mon-text-dim);
+        font-size: 11px; font-family: inherit; text-decoration: none;
+        transition: all 0.1s; border-radius: 4px;
+      }
+      .mon-xls-dropdown a:hover { background: var(--mon-surface2); color: var(--mon-text); }
+
+      /* ── LISTAS ── */
+      .mon-list-label {
+        font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+        font-weight: 700; margin-bottom: 8px;
+      }
+      .mon-list-label.warn { color: var(--mon-red); }
+      .mon-list-label.muted { color: var(--mon-text-faint); }
+
+      .mon-list-table {
+        width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 14px;
+      }
+      .mon-list-table thead th {
+        padding: 5px 10px; text-align: left;
+        font-size: 9px; color: var(--mon-text-faint);
+        letter-spacing: 1px; text-transform: uppercase; font-weight: 700;
+        border-bottom: 1px solid var(--mon-border);
+        background: transparent; position: static;
+      }
+      .mon-list-table tbody tr {
+        border-bottom: 1px solid var(--mon-border);
+        transition: background 0.1s;
+      }
+      .mon-list-table tbody tr:last-child { border-bottom: none; }
+      .mon-list-table tbody tr:hover td { background: var(--mon-surface); }
+      .mon-list-table td { padding: 6px 10px; }
+      .mon-list-table td.name { font-weight: 600; }
+      .mon-list-table td.name.warn { color: var(--mon-red); }
+      .mon-list-table td.name.ok   { color: var(--mon-text); }
+      .mon-list-table td.tipo { color: var(--mon-text-dim); }
+      .mon-list-table td.time { color: var(--mon-text-dim); font-family: 'Consolas', monospace; font-size: 10px; }
+
+      .mon-empty-detail { color: var(--mon-text-faint); font-size: 11px; }
+      .mon-loading-detail {
+        display: flex; align-items: center; gap: 8px;
+        color: var(--mon-text-dim); font-size: 11px;
+      }
+      .mon-loading-spinner {
+        width: 14px; height: 14px; border-radius: 50%;
+        border: 2px solid var(--mon-border2);
+        border-top-color: var(--mon-indigo);
+        animation: mon-spin 0.7s linear infinite; flex-shrink: 0;
+      }
+
+      /* ── PROGRESS AVATAR ── */
+      .mon-avatar-wrap {
+        position: relative; width: 44px; height: 44px; flex-shrink: 0;
+      }
+      #mon-avatar-img {
+        width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+        position: absolute; top: 2px; left: 2px; z-index: 1;
+        transform-origin: center;
+      }
+      #mon-progress-overlay {
+        position: absolute; top: 2px; left: 2px; width: 40px; height: 40px;
+        border-radius: 50%; background: rgba(0,0,0,0.55); z-index: 2;
+        transition: opacity 0.3s;
+      }
+      #mon-progress-text {
+        position: absolute; top: 2px; left: 2px; width: 40px; height: 40px;
+        border-radius: 50%; z-index: 3;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 9px; font-weight: 700; color: #fff; font-family: 'Consolas', monospace;
+      }
+    `;
+    document.head.appendChild(s);
   }
 
   // ── PAINEL ────────────────────────────────────────────────────────────────────
   function createPanel() {
     if (document.getElementById('mon-panel')) return;
-
-    if (!document.getElementById('mon-style')) {
-      const s = document.createElement('style');
-      s.id = 'mon-style';
-      s.textContent = `
-        @keyframes mon-shake{0%{transform:rotate(-10deg) scale(1.05)}100%{transform:rotate(10deg) scale(1.05)}}
-        @keyframes mon-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-        @keyframes mon-bar-fill{from{width:0}to{width:var(--bar-w)}}
-        #mon-panel{font-family:'Segoe UI',monospace,sans-serif}
-        #mon-panel ::-webkit-scrollbar{width:4px}
-        #mon-panel ::-webkit-scrollbar-track{background:#111}
-        #mon-panel ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
-        #mon-panel tr.op-row:hover td{background:#141414}
-        .mon-bar-wrap{height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:3px}
-        .mon-bar-inner{height:100%;border-radius:2px;animation:mon-bar-fill 0.8s cubic-bezier(0.4,0,0.2,1) both;width:var(--bar-w)}
-        .mon-send-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(129,140,248,0.08);border:1px solid rgba(129,140,248,0.22);color:#818cf8;padding:5px 12px;border-radius:5px;font-size:10px;font-family:monospace;cursor:pointer;letter-spacing:1px;font-weight:600;transition:all 0.2s}
-        .mon-send-btn:hover{background:rgba(129,140,248,0.16)}
-        .mon-send-btn:disabled{cursor:not-allowed;opacity:0.6}
-        .mon-dl-btn{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#666;padding:4px 10px;border-radius:4px;font-size:10px;font-family:monospace;cursor:pointer;transition:all 0.15s;text-decoration:none}
-        .mon-dl-btn:hover{background:rgba(255,255,255,0.08);color:#aaa}
-        .mon-xls-menu{position:relative;display:inline-block}
-        .mon-xls-dropdown{display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 0;z-index:999;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.8)}
-        .mon-xls-menu:hover .mon-xls-dropdown{display:block}
-        .mon-xls-dropdown a{display:block;padding:6px 12px;color:#666;font-size:10px;font-family:monospace;text-decoration:none;transition:all 0.1s;border-bottom:1px solid rgba(255,255,255,0.04)}
-        .mon-xls-dropdown a:last-child{border-bottom:none}
-        .mon-xls-dropdown a:hover{background:rgba(255,255,255,0.06);color:#aaa}
-        .mon-refresh-btn{background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.2);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:10px;font-family:monospace;cursor:pointer;transition:all 0.15s;letter-spacing:0.5px}
-        .mon-refresh-btn:hover{background:rgba(74,222,128,0.14)}
-        .mon-refresh-btn:active{transform:scale(0.96)}
-      `;
-      document.head.appendChild(s);
-    }
+    injectStyles();
 
     const p = document.createElement('div');
     p.id = 'mon-panel';
     p.style.cssText = `
-      position:fixed;top:0;right:0;width:980px;height:100vh;
-      background:#0d0d0d;color:#ccc;z-index:99998;
-      box-shadow:-6px 0 32px rgba(0,0,0,0.7);
-      display:none;flex-direction:column;overflow:hidden;
-      font-family:'Segoe UI',monospace,sans-serif;font-size:12px;
-      border-left:1px solid #1e1e1e;
+      position:fixed;top:0;right:0;width:1020px;height:100vh;
+      z-index:99998;display:none;flex-direction:column;overflow:hidden;
     `;
 
-    const r = 22, circ = 2 * Math.PI * r;
-    const notifLabel = !('Notification' in window) ? 'sem suporte' :
-      Notification.permission === 'granted' ? '🔔 ativo' :
-      Notification.permission === 'denied'  ? '🔕 bloqueado' : '🔔 ativar';
-    const notifColor = Notification.permission === 'granted' ? '#4ade80' :
-      Notification.permission === 'denied'  ? '#f87171' : '#666';
+    const r = 20, circ = 2 * Math.PI * r;
+    const notifState = !('Notification' in window) ? 'off' :
+      Notification.permission === 'granted' ? 'on' :
+      Notification.permission === 'denied'  ? 'off' : 'default';
+    const notifLabel = notifState === 'on' ? '🔔 Notif. ativa' : notifState === 'off' ? '🔕 Bloqueado' : '🔔 Ativar notif.';
 
     p.innerHTML = `
-      <div id="mon-header" style="background:#111;border-bottom:1px solid #1e1e1e;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;user-select:none">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="color:#fff;font-weight:700;font-size:13px;letter-spacing:0.8px">MONITOR OPERACIONAL</span>
-          <span id="mon-live" style="font-size:10px;color:#444;padding:2px 7px;border:1px solid #222;border-radius:2px;letter-spacing:0.5px">OFFLINE</span>
+      <!-- HEADER -->
+      <div id="mon-header">
+        <div class="mon-logo">
+          <div class="mon-logo-icon">M</div>
+          <div class="mon-logo-text">
+            <div class="mon-logo-title">Monitor TSI</div>
+            <div class="mon-logo-sub" id="mon-sub">Inicializando…</div>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:7px">
-          <button class="mon-refresh-btn" onclick="window._monRefresh()" title="Atualizar tudo agora">↻ atualizar</button>
-          <button id="mon-notif-btn" onclick="window._monPedirNotif()" style="background:#111;border:1px solid #222;color:${notifColor};padding:3px 8px;border-radius:4px;font-size:10px;cursor:pointer;font-family:monospace">${notifLabel}</button>
-          <div style="position:relative;width:50px;height:50px;flex-shrink:0" title="Progresso">
-            <img id="mon-avatar-img" src="${AVATAR_URL}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;position:absolute;top:2px;left:2px;z-index:1;transform-origin:center" />
-            <div id="mon-progress-overlay" style="position:absolute;top:2px;left:2px;width:46px;height:46px;border-radius:50%;background:rgba(0,0,0,0.6);z-index:2;transition:opacity 0.3s"></div>
-            <div id="mon-progress-text" style="position:absolute;top:2px;left:2px;width:46px;height:46px;border-radius:50%;z-index:3;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;font-family:monospace">0%</div>
-            <svg width="50" height="50" style="position:absolute;top:0;left:0;transform:rotate(-90deg);z-index:4">
-              <circle cx="25" cy="25" r="${r}" fill="none" stroke="#1e1e1e" stroke-width="3"/>
-              <circle id="mon-progress-circle" cx="25" cy="25" r="${r}" fill="none" stroke="#fb923c" stroke-width="3" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" style="transition:stroke-dashoffset 0.4s ease,stroke 0.4s ease"/>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="mon-live" class="mon-status-pill" data-state="offline">
+            <span class="mon-status-dot"></span>
+            <span>Offline</span>
+          </span>
+          <button class="mon-hdr-btn mon-hdr-btn--green" onclick="window._monRefresh()" title="Atualizar tudo agora">
+            ↻ Atualizar
+          </button>
+          <button id="mon-notif-btn" class="mon-hdr-btn" data-state="${notifState}"
+            onclick="window._monPedirNotif()">${notifLabel}</button>
+          <!-- Avatar progress -->
+          <div class="mon-avatar-wrap" title="Progresso de carregamento">
+            <img id="mon-avatar-img" src="${AVATAR_URL}" />
+            <div id="mon-progress-overlay"></div>
+            <div id="mon-progress-text" style="display:none">0%</div>
+            <svg width="44" height="44" style="position:absolute;top:0;left:0;transform:rotate(-90deg);z-index:4">
+              <circle cx="22" cy="22" r="${r}" fill="none" stroke="var(--mon-border)" stroke-width="2.5"/>
+              <circle id="mon-progress-circle" cx="22" cy="22" r="${r}" fill="none" stroke="var(--mon-amber)" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" style="transition:stroke-dashoffset 0.4s ease,stroke 0.4s ease"/>
             </svg>
           </div>
-          <span id="mon-sub" style="font-size:10px;color:#444">—</span>
-          <button id="mon-min-btn" onclick="window._monMinimize()" style="background:#111;border:1px solid #222;color:#555;padding:2px 8px;border-radius:2px;font-size:13px;cursor:pointer;font-family:monospace;line-height:1">—</button>
-          <button onclick="document.getElementById('mon-panel').style.display='none';document.getElementById('btn-mon').innerHTML='▶ MONITOR'" style="background:#111;border:1px solid #222;color:#555;padding:2px 8px;border-radius:2px;font-size:12px;cursor:pointer;font-family:monospace">✕</button>
+          <button class="mon-icon-btn" id="mon-min-btn" onclick="window._monMinimize()" title="Minimizar">&#8212;</button>
+          <button class="mon-icon-btn" onclick="document.getElementById('mon-panel').style.display='none';document.getElementById('btn-mon').innerHTML='<span class=mon-fab-dot></span> Monitor'" title="Fechar">&#10005;</button>
         </div>
       </div>
 
+      <!-- BODY -->
       <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1a1a1a;flex-shrink:0;border-bottom:1px solid #1e1e1e">
-          <div style="background:#0d0d0d;padding:10px 14px">
-            <div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Operações</div>
-            <div style="font-size:22px;font-weight:700;color:#aaa" id="m-total">—</div>
+        <!-- MÉTRICAS -->
+        <div id="mon-metrics">
+          <div class="mon-metric">
+            <div class="mon-metric-label">Operações</div>
+            <div class="mon-metric-val" id="m-total">—</div>
           </div>
-          <div style="background:#0d0d0d;padding:10px 14px">
-            <div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Completas</div>
-            <div style="font-size:22px;font-weight:700;color:#4ade80" id="m-ok">—</div>
+          <div class="mon-metric">
+            <div class="mon-metric-label">Completas</div>
+            <div class="mon-metric-val green" id="m-ok">—</div>
           </div>
-          <div style="background:#0d0d0d;padding:10px 14px">
-            <div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Parciais</div>
-            <div style="font-size:22px;font-weight:700;color:#fb923c" id="m-inc">—</div>
+          <div class="mon-metric">
+            <div class="mon-metric-label">Parciais</div>
+            <div class="mon-metric-val amber" id="m-inc">—</div>
           </div>
-          <div style="background:#0d0d0d;padding:10px 14px">
-            <div style="font-size:9px;color:#444;letter-spacing:1px;margin-bottom:4px;text-transform:uppercase">Sem apont.</div>
-            <div style="font-size:22px;font-weight:700;color:#f87171" id="m-zero">—</div>
+          <div class="mon-metric">
+            <div class="mon-metric-label">Sem apontamento</div>
+            <div class="mon-metric-val red" id="m-zero">—</div>
           </div>
         </div>
 
-        <div style="flex:1;overflow-y:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+        <!-- TABELA -->
+        <div id="mon-table-wrap">
+          <table id="mon-table">
             <thead>
-              <tr style="background:#111;border-bottom:1px solid #1e1e1e;position:sticky;top:0;z-index:1">
-                <th style="padding:8px 10px;text-align:left;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:14%">CHAVE</th>
-                <th style="padding:8px 10px;text-align:left;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:7%">SIGLA</th>
-                <th style="padding:8px 10px;text-align:left;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:16%">SITE</th>
-                <th style="padding:8px 10px;text-align:center;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:12%">ESC/SOL</th>
-                <th style="padding:8px 10px;text-align:center;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:12%">APT/SOL</th>
-                <th style="padding:8px 10px;text-align:left;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:7%">HORA</th>
-                <th style="padding:8px 10px;text-align:left;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:12%">LÍDER</th>
-                <th style="padding:8px 10px;text-align:center;font-size:9px;color:#444;letter-spacing:1px;font-weight:600;width:16%">STATUS</th>
-                <th style="padding:8px 10px;width:4%"></th>
+              <tr>
+                <th style="width:13%">Chave</th>
+                <th style="width:7%">Sigla</th>
+                <th style="width:17%">Site</th>
+                <th class="center" style="width:11%">Esc / Sol</th>
+                <th class="center" style="width:11%">Apt / Sol</th>
+                <th style="width:7%">Hora</th>
+                <th style="width:14%">Líder</th>
+                <th class="center" style="width:16%">Status</th>
+                <th style="width:4%"></th>
               </tr>
             </thead>
             <tbody id="mon-tbody"></tbody>
@@ -770,16 +1176,279 @@
     initControls(p);
   }
 
+  // ── BADGES ────────────────────────────────────────────────────────────────────
+  function colorForPct(pct) {
+    if (pct >= 100) return 'var(--mon-green)';
+    if (pct > 0)    return 'var(--mon-indigo)';
+    return 'var(--mon-text-faint)';
+  }
+  function colorForAptPct(pct) {
+    if (pct >= 100) return 'var(--mon-green)';
+    if (pct > 0)    return 'var(--mon-amber)';
+    return 'var(--mon-text-faint)';
+  }
+
+  function escaladoBadge(d, qtd) {
+    if (!d || d === 'loading') return `<span class="mon-prog-pending">…/${qtd}</span>`;
+    const pct = qtd > 0 ? Math.min(100, Math.round((d.escalado / qtd) * 100)) : 0;
+    const cor = colorForPct(pct);
+    return `
+      <div class="mon-prog-cell">
+        <div class="mon-prog-num" style="color:${cor}">${d.escalado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${qtd}</span></div>
+        <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${pct}%;background:${cor}"></div></div>
+      </div>`;
+  }
+
+  function apontBadge(d, qtd) {
+    if (!d || d === 'loading') return `<span class="mon-prog-pending">…/${qtd}</span>`;
+    const pct = qtd > 0 ? Math.min(100, Math.round((d.apontado / qtd) * 100)) : 0;
+    const cor = colorForAptPct(pct);
+    return `
+      <div class="mon-prog-cell">
+        <div class="mon-prog-num" style="color:${cor}">${d.apontado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${qtd}</span></div>
+        <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${pct}%;background:${cor}"></div></div>
+      </div>`;
+  }
+
+  function escalaEnviadaBadge(op) {
+    const d = apontCache[op.id];
+    if (!d || d === 'loading' || !d.listaEnviada) return '';
+    return '<span class="mon-envelope" title="Lista enviada ao cliente">📋</span>';
+  }
+
+  function situacaoBadge(d, op) {
+    if (!d || d === 'loading') return '<span class="mon-status-badge neutro">—</span>';
+    const escOk = d.escalado >= d.solicitado;
+    const aptOk = d.apontado >= d.solicitado;
+    if (d._soEscala) {
+      if (d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
+      if (escOk)            return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
+      return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
+    }
+    if (aptOk && escOk) return '<span class="mon-status-badge completo">✓ Completo</span>';
+    if (d.apontado === 0 && d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
+    const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
+    if (d.apontado === 0 && listaEnviada) return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0 && escOk)        return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0)                 return `<span class="mon-status-badge nenhum">Esc ${d.escalado}/${d.solicitado}</span>`;
+    return `<span class="mon-status-badge parcial">△ Apt ${d.apontado}/${d.solicitado}</span>`;
+  }
+
+  // ── MÉTRICAS ──────────────────────────────────────────────────────────────────
+  function updateMetrics() {
+    let ok = 0, inc = 0, zero = 0;
+    operations.forEach(op => {
+      if (!naJanela(op)) return;
+      const d = apontCache[op.id];
+      if (!d || d === 'loading') return;
+      if (d.apontado === 0) zero++;
+      else if (d.apontado >= d.solicitado) ok++;
+      else inc++;
+    });
+    const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    s('m-total', operations.length);
+    s('m-ok',    ok);
+    s('m-inc',   inc);
+    s('m-zero',  zero);
+  }
+
+  function setLive(state, label) {
+    const el = document.getElementById('mon-live');
+    if (!el) return;
+    el.dataset.state = state;
+    el.querySelector('span:last-child').textContent = label;
+  }
+
+  // ── RENDER ────────────────────────────────────────────────────────────────────
+  function renderTable() {
+    const tbody = document.getElementById('mon-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (operations.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação encontrada</td></tr>`;
+      return;
+    }
+    operations.forEach((op, idx) => {
+      const isExp    = expanded.has(op.chave);
+      const d        = apontCache[op.id];
+      const emJanela = naJanela(op);
+      const temDados = d && d !== 'loading';
+
+      const escPct = temDados && op.qtd > 0 ? Math.min(100, Math.round((d.escalado / op.qtd) * 100)) : 0;
+      const aptPct = temDados && emJanela && op.qtd > 0 ? Math.min(100, Math.round((d.apontado / op.qtd) * 100)) : 0;
+      const escCor = colorForPct(escPct);
+      const aptCor = colorForAptPct(aptPct);
+
+      const tr = document.createElement('tr');
+      tr.className = 'op-row' + (isExp ? ' is-expanded' : '');
+      tr.dataset.chave = op.chave;
+
+      tr.innerHTML = `
+        <td><span class="mon-chave" title="${op.chave}">${op.chave}</span></td>
+        <td><span class="mon-sigla">${op.sigla}</span></td>
+        <td><span class="mon-site" title="${op.site}">${op.site}</span></td>
+        <td>
+          ${op.id
+            ? (temDados
+                ? `<div class="mon-prog-cell">
+                     <div class="mon-prog-num" style="color:${escCor}">${d.escalado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${op.qtd}</span></div>
+                     <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${escPct}%;background:${escCor}"></div></div>
+                   </div>`
+                : `<span class="mon-prog-pending">…/${op.qtd}</span>`)
+            : '<span class="mon-prog-na">—</span>'}
+        </td>
+        <td>
+          ${emJanela
+            ? (temDados
+                ? `<div class="mon-prog-cell">
+                     <div class="mon-prog-num" style="color:${aptCor}">${d.apontado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${op.qtd}</span></div>
+                     <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${aptPct}%;background:${aptCor}"></div></div>
+                   </div>`
+                : `<span class="mon-prog-pending">…/${op.qtd}</span>`)
+            : '<span class="mon-prog-na">—</span>'}
+        </td>
+        <td><span class="mon-hora">${op.hora}</span></td>
+        <td><span class="mon-lider">${op.lider}</span></td>
+        <td style="text-align:center">
+          ${situacaoBadge(temDados ? d : null, op)}${escalaEnviadaBadge(op)}
+        </td>
+        <td style="text-align:center"><span class="mon-chevron">▼</span></td>
+      `;
+      tr.onclick = () => toggleRow(op, idx);
+      tbody.appendChild(tr);
+
+      if (isExp) {
+        const det = document.createElement('tr');
+        det.id = 'det-' + idx;
+        det.className = 'op-detail';
+        det.innerHTML = `<td colspan="9"><div class="mon-detail-inner">${renderDetail(op)}</div></td>`;
+        tbody.appendChild(det);
+      }
+    });
+    updateMetrics();
+  }
+
+  function renderDetail(op) {
+    const d = apontCache[op.id];
+    if (!d || d === 'loading') return `
+      <div class="mon-loading-detail">
+        <div class="mon-loading-spinner"></div>
+        Carregando dados…
+      </div>`;
+
+    const escPct = op.qtd > 0 ? Math.min(100, Math.round((d.escalado / op.qtd) * 100)) : 0;
+    const aptPct = op.qtd > 0 ? Math.min(100, Math.round((d.apontado / op.qtd) * 100)) : 0;
+    const escCor = colorForPct(escPct);
+    const aptCor = colorForAptPct(aptPct);
+
+    const chaveEsc = op.chave.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+    let html = `
+      <div class="mon-detail-header">
+        <span class="mon-key-chip">${op.chave}</span>
+        <button class="mon-copy-btn"
+          onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ Copiado';btn.style.color='var(--mon-green)';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ Erro';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)})})(this)">
+          ⎘ Copiar chave
+        </button>
+      </div>
+
+      <div class="mon-stat-grid">
+        <div class="mon-stat-card">
+          <div class="mon-stat-card-header">
+            <span class="mon-stat-card-label">Escalados</span>
+            <span class="mon-stat-card-num" style="color:${escCor}">${d.escalado}<span class="mon-stat-card-sub">/${op.qtd}</span></span>
+          </div>
+          <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${escPct}%;background:${escCor}"></div></div>
+          <div class="mon-stat-card-pct">${escPct}% escalado</div>
+        </div>
+        <div class="mon-stat-card">
+          <div class="mon-stat-card-header">
+            <span class="mon-stat-card-label">Apontados</span>
+            <span class="mon-stat-card-num" style="color:${aptCor}">${d.apontado}<span class="mon-stat-card-sub">/${op.qtd}</span></span>
+          </div>
+          <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${aptPct}%;background:${aptCor}"></div></div>
+          <div class="mon-stat-card-pct">${aptPct}% apontado</div>
+        </div>
+      </div>
+    `;
+
+    const pdfLinks = d.pdfLinks || [], xlsLinks = d.xlsLinks || [];
+    html += `<div class="mon-actions">
+      <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>`;
+    pdfLinks.forEach(l => {
+      html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
+    });
+    if (xlsLinks.length > 0) {
+      html += `<div class="mon-xls-menu">
+        <button class="mon-dl-btn">📊 XLS ▾</button>
+        <div class="mon-xls-dropdown">`;
+      xlsLinks.forEach(l => { html += `<a href="https://tsi-app.com/${l.href}" target="_blank">${l.label}</a>`; });
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+
+    const faltando = d.faltando || [];
+    if (faltando.length > 0) {
+      html += `
+        <div class="mon-list-label warn">⚠ Faltando apontamento (${faltando.length})</div>
+        <table class="mon-list-table">
+          <thead><tr><th>Nome</th><th>Tipo</th></tr></thead>
+          <tbody>`;
+      faltando.forEach(c => {
+        html += `<tr><td class="name warn">${c.nome}</td><td class="tipo">${c.tipo||'—'}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    const colab = d.colaboradores || [];
+    if (colab.length > 0) {
+      html += `
+        <div class="mon-list-label muted">Apontados (${colab.length})</div>
+        <table class="mon-list-table">
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Início</th></tr></thead>
+          <tbody>`;
+      colab.forEach(c => {
+        html += `<tr><td class="name ok">${c.nome}</td><td class="tipo">${c.tipo||'—'}</td><td class="time">${c.inicio}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    if (colab.length === 0 && faltando.length === 0) {
+      html += '<div class="mon-empty-detail">Sem dados de escala/apontamento.</div>';
+    }
+    return html;
+  }
+
+  function toggleRow(op, idx) {
+    if (expanded.has(op.chave)) { expanded.delete(op.chave); renderTable(); return; }
+    expanded.add(op.chave);
+    renderTable();
+    const cached = apontCache[op.id];
+    if (!cached || cached === 'loading') {
+      const poll = setInterval(() => {
+        const c = apontCache[op.id];
+        if (c && c !== 'loading') {
+          clearInterval(poll);
+          const det = document.getElementById('det-' + idx);
+          if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
+          updateMetrics();
+        }
+      }, 500);
+      setTimeout(() => clearInterval(poll), 40000);
+    }
+  }
+
+  // ── TOGGLE ────────────────────────────────────────────────────────────────────
   function toggleMonitor() {
     if (!document.getElementById('mon-panel')) createPanel();
     const p   = document.getElementById('mon-panel');
     const btn = document.getElementById('btn-mon');
     if (p.style.display === 'none' || !p.style.display) {
       p.style.display = 'flex'; p.style.flexDirection = 'column';
-      btn.innerHTML = '■ MONITOR';
+      btn.innerHTML = '<span class="mon-fab-dot"></span> Monitor';
     } else {
       p.style.display = 'none';
-      btn.innerHTML = '▶ MONITOR';
+      btn.innerHTML = '<span class="mon-fab-dot"></span> Monitor';
     }
   }
 
@@ -791,7 +1460,7 @@
   }
 
   function fetchOperations() {
-    setLive('SYNC', '#fb923c');
+    setLive('sync', 'Sincronizando…');
     const ops1 = parseOpsFromDoc(document);
     const ifr2 = document.getElementById(IFR_PAG2);
 
@@ -799,13 +1468,11 @@
       const seen = new Set();
       const ops  = opsAll.filter(o => { if (seen.has(o.chave)) return false; seen.add(o.chave); return true; });
 
-      // ── Restaura cache da sessão antes de zerar ──────────────────────────
       const savedCache = cacheLoad();
-      const prevCache  = apontCache; // cache em memória atual (se já estava rodando)
+      const prevCache  = apontCache;
 
       operations  = ops;
-      window._monOps = ops; // debug
-      // Mescla: memória > sessionStorage (memória é mais recente se já estava rodando)
+      window._monOps = ops;
       apontCache  = {};
       ops.forEach(o => {
         if (o.id) {
@@ -824,15 +1491,13 @@
       const opsComId = ops.filter(o => o.id);
       opsComId.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
       renderTable();
-      setLive('LIVE', '#4ade80');
+      setLive('live', 'Ao vivo');
       const sub = document.getElementById('mon-sub');
-      if (sub) sub.textContent = 'sync ' + new Date().toLocaleTimeString('pt-BR');
+      if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
 
-      // Mostra cache imediato enquanto re-busca tudo em background
       const total = opsComId.length;
       let loaded = 0;
 
-      // Marca ops com cache como _stale (desatualizadas) — continuam visíveis
       opsComId.forEach(op => {
         if (apontCache[op.id]) {
           apontCache[op.id]._stale = true;
@@ -842,7 +1507,6 @@
       updateProgress(loaded, total);
       if (loaded > 0) updateMetrics();
 
-      // Re-busca TODAS as ops em background — substitui cache quando novo dado chegar
       opsComId.forEach((op) => {
         const hadCache = !!apontCache[op.id];
         enfileirar(op, (novo) => {
@@ -852,7 +1516,7 @@
           updateCells(op, novo, null);
           updateMetrics();
           cacheSave();
-        }, true); // force=true: re-busca mesmo com cache existente
+        }, true);
       });
     };
 
@@ -874,245 +1538,6 @@
         catch(e) { finalizar(ops1); }
       }, 1500);
     };
-  }
-
-  // ── RENDER ────────────────────────────────────────────────────────────────────
-  function renderTable() {
-    const tbody = document.getElementById('mon-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-    if (operations.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:3rem;color:#333">NENHUMA OPERAÇÃO</td></tr>';
-      return;
-    }
-    operations.forEach((op, idx) => {
-      const isExp    = expanded.has(op.chave);
-      const d        = apontCache[op.id];
-      const emJanela = naJanela(op);
-      const temDados = d && d !== 'loading';
-
-      const escPct = temDados && op.qtd > 0 ? Math.min(100, Math.round((d.escalado / op.qtd) * 100)) : 0;
-      const aptPct = temDados && emJanela && op.qtd > 0 ? Math.min(100, Math.round((d.apontado / op.qtd) * 100)) : 0;
-      const escCor = escPct >= 100 ? '#4ade80' : escPct > 0 ? '#818cf8' : '#2a2a2a';
-      const aptCor = aptPct >= 100 ? '#4ade80' : aptPct > 0 ? '#fb923c' : '#2a2a2a';
-
-      const tr = document.createElement('tr');
-      tr.className = 'op-row';
-      tr.dataset.chave = op.chave;
-      tr.style.cssText = `border-bottom:1px solid #161616;cursor:pointer;transition:background 0.1s;${isExp ? 'background:#141414;' : ''}`;
-
-      tr.innerHTML = `
-        <td style="padding:8px 10px;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px" title="${op.chave}">${op.chave}</td>
-        <td style="padding:8px 10px;color:#ddd;font-weight:700;font-size:12px">${op.sigla}</td>
-        <td style="padding:8px 10px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="${op.site}">${op.site}</td>
-        <td style="padding:6px 10px;text-align:center">
-          ${op.id
-            ? (temDados
-                ? `<div style="font-size:12px;font-weight:700;color:${escCor}">${d.escalado}/${op.qtd}</div><div class="mon-bar-wrap"><div class="mon-bar-inner" style="--bar-w:${escPct}%;background:${escCor}"></div></div>`
-                : `<span style="color:#333;font-size:11px">.../${op.qtd}</span>`)
-            : '<span style="color:#2a2a2a">—</span>'}
-        </td>
-        <td style="padding:6px 10px;text-align:center">
-          ${emJanela
-            ? (temDados
-                ? `<div style="font-size:12px;font-weight:700;color:${aptCor}">${d.apontado}/${op.qtd}</div><div class="mon-bar-wrap"><div class="mon-bar-inner" style="--bar-w:${aptPct}%;background:${aptCor}"></div></div>`
-                : `<span style="color:#333;font-size:11px">.../${op.qtd}</span>`)
-            : '<span style="color:#2a2a2a;font-size:10px">—</span>'}
-        </td>
-        <td style="padding:8px 10px;color:#666;font-size:11px">${op.hora}</td>
-        <td style="padding:8px 10px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${op.lider}</td>
-        <td style="padding:8px 10px;text-align:center">
-          ${situacaoBadge(temDados ? d : null, op)}${escalaEnviadaBadge(op)}
-        </td>
-        <td style="padding:8px 10px;text-align:center;color:#333;font-size:13px">${isExp ? '▴' : '▾'}</td>
-      `;
-      tr.onclick = () => toggleRow(op, idx);
-      tbody.appendChild(tr);
-
-      if (isExp) {
-        const det = document.createElement('tr');
-        det.id = 'det-' + idx;
-        det.style.cssText = 'border-bottom:1px solid #1e1e1e;';
-        det.innerHTML = `<td colspan="9" style="padding:0"><div style="background:#0a0a0a;border-top:1px solid #1a1a1a;padding:10px 14px">${renderDetail(op)}</div></td>`;
-        tbody.appendChild(det);
-      }
-    });
-    updateMetrics();
-  }
-
-  function renderDetail(op) {
-    const d = apontCache[op.id];
-    if (!d || d === 'loading') return '<span style="color:#444;font-size:11px">⏳ carregando...</span>';
-
-    const escPct = op.qtd > 0 ? Math.min(100, Math.round((d.escalado / op.qtd) * 100)) : 0;
-    const aptPct = op.qtd > 0 ? Math.min(100, Math.round((d.apontado / op.qtd) * 100)) : 0;
-    const escCor = escPct >= 100 ? '#4ade80' : escPct > 0 ? '#818cf8' : '#333';
-    const aptCor = aptPct >= 100 ? '#4ade80' : aptPct > 0 ? '#fb923c' : '#333';
-
-    // Escapa a chave para uso seguro em atributo HTML
-    const chaveEsc = op.chave.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-
-    let html = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:10px;color:#555;font-family:monospace">${op.chave}</span>
-        <button onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ copiado';btn.style.color='#4ade80';setTimeout(()=>{btn.textContent='📋 copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ erro';setTimeout(()=>{btn.textContent='📋 copiar chave';btn.style.color='';},1800)})})(this)" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#555;padding:3px 9px;border-radius:4px;font-size:10px;font-family:monospace;cursor:pointer;transition:all 0.15s">📋 copiar chave</button>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;min-width:0">
-        <div style="background:rgba(255,255,255,0.03);border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;min-width:0;overflow:hidden">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:8px;color:#333;letter-spacing:1.5px;text-transform:uppercase">Escalados</span>
-            <span style="font-size:14px;font-weight:700;color:${escCor}">${d.escalado}<span style="color:#2a2a2a;font-size:10px">/${op.qtd}</span></span>
-          </div>
-          <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden">
-            <div style="height:100%;width:${escPct}%;background:${escCor};border-radius:2px;transition:width 0.8s ease"></div>
-          </div>
-          <div style="font-size:9px;color:#2a2a2a;margin-top:4px">${escPct}% escalado</div>
-        </div>
-        <div style="background:rgba(255,255,255,0.03);border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;min-width:0;overflow:hidden">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:8px;color:#333;letter-spacing:1.5px;text-transform:uppercase">Apontados</span>
-            <span style="font-size:14px;font-weight:700;color:${aptCor}">${d.apontado}<span style="color:#2a2a2a;font-size:10px">/${op.qtd}</span></span>
-          </div>
-          <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden">
-            <div style="height:100%;width:${aptPct}%;background:${aptCor};border-radius:2px;transition:width 0.8s ease"></div>
-          </div>
-          <div style="font-size:9px;color:#2a2a2a;margin-top:4px">${aptPct}% apontado</div>
-        </div>
-      </div>`;
-
-    const pdfLinks = d.pdfLinks || [], xlsLinks = d.xlsLinks || [];
-    html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center">
-      <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ ESCALA ENVIADA</button>`;
-    pdfLinks.forEach(l => {
-      html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
-    });
-    if (xlsLinks.length > 0) {
-      html += `<div class="mon-xls-menu"><button class="mon-dl-btn">📊 XLS ▾</button><div class="mon-xls-dropdown">`;
-      xlsLinks.forEach(l => { html += `<a href="https://tsi-app.com/${l.href}" target="_blank">${l.label}</a>`; });
-      html += `</div></div>`;
-    }
-    html += `</div>`;
-
-    const faltando = d.faltando || [];
-    if (faltando.length > 0) {
-      html += `<div style="font-size:9px;color:#f87171;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">⚠ Faltando apontamento (${faltando.length})</div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px">
-          <thead><tr>
-            <th style="padding:4px 8px;text-align:left;color:#333;font-size:9px;border-bottom:1px solid #1a1a1a">NOME</th>
-            <th style="padding:4px 8px;text-align:left;color:#333;font-size:9px;border-bottom:1px solid #1a1a1a">TIPO</th>
-          </tr></thead><tbody>`;
-      faltando.forEach(c => {
-        html += `<tr style="border-bottom:1px solid #141414"><td style="padding:5px 8px;color:#f87171;font-weight:600">${c.nome}</td><td style="padding:5px 8px;color:#555">${c.tipo||'—'}</td></tr>`;
-      });
-      html += '</tbody></table>';
-    }
-
-    const colab = d.colaboradores || [];
-    if (colab.length > 0) {
-      html += `<div style="font-size:9px;color:#444;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Apontados (${colab.length})</div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-          <thead><tr>
-            <th style="padding:4px 8px;text-align:left;color:#333;font-size:9px;border-bottom:1px solid #1a1a1a">NOME</th>
-            <th style="padding:4px 8px;text-align:left;color:#333;font-size:9px;border-bottom:1px solid #1a1a1a">TIPO</th>
-            <th style="padding:4px 8px;text-align:left;color:#333;font-size:9px;border-bottom:1px solid #1a1a1a">INÍCIO</th>
-          </tr></thead><tbody>`;
-      colab.forEach(c => {
-        html += `<tr style="border-bottom:1px solid #141414"><td style="padding:5px 8px;color:#bbb;font-weight:600">${c.nome}</td><td style="padding:5px 8px;color:#555">${c.tipo||'—'}</td><td style="padding:5px 8px;color:#666;font-family:monospace">${c.inicio}</td></tr>`;
-      });
-      html += '</tbody></table>';
-    }
-
-    if (colab.length === 0 && faltando.length === 0) {
-      html += '<div style="color:#333;font-size:11px">sem dados de escala/apontamento</div>';
-    }
-    return html;
-  }
-
-  function toggleRow(op, idx) {
-    if (expanded.has(op.chave)) { expanded.delete(op.chave); renderTable(); return; }
-    expanded.add(op.chave);
-    renderTable();
-    const cached = apontCache[op.id];
-    if (!cached || cached === 'loading') {
-      const poll = setInterval(() => {
-        const c = apontCache[op.id];
-        if (c && c !== 'loading') {
-          clearInterval(poll);
-          const det = document.getElementById('det-' + idx);
-          if (det) det.querySelector('div').innerHTML = renderDetail(op);
-          updateMetrics();
-        }
-      }, 500);
-      setTimeout(() => clearInterval(poll), 40000);
-    }
-  }
-
-  function escaladoBadge(d, qtd) {
-    if (!d || d === 'loading') return `<span style="color:#333;font-size:11px">.../${qtd}</span>`;
-    const pct = qtd > 0 ? Math.min(100, Math.round((d.escalado / qtd) * 100)) : 0;
-    const cor = pct >= 100 ? '#4ade80' : pct > 0 ? '#818cf8' : '#2a2a2a';
-    return `<div style="font-size:12px;font-weight:700;color:${cor}">${d.escalado}/${qtd}</div><div class="mon-bar-wrap"><div class="mon-bar-inner" style="--bar-w:${pct}%;background:${cor}"></div></div>`;
-  }
-
-  function apontBadge(d, qtd) {
-    if (!d || d === 'loading') return `<span style="color:#333;font-size:11px">.../${qtd}</span>`;
-    const pct = qtd > 0 ? Math.min(100, Math.round((d.apontado / qtd) * 100)) : 0;
-    const cor = pct >= 100 ? '#4ade80' : pct > 0 ? '#fb923c' : '#2a2a2a';
-    return `<div style="font-size:12px;font-weight:700;color:${cor}">${d.apontado}/${qtd}</div><div class="mon-bar-wrap"><div class="mon-bar-inner" style="--bar-w:${pct}%;background:${cor}"></div></div>`;
-  }
-
-  function escalaEnviadaBadge(op) {
-    const d = apontCache[op.id];
-    if (!d || d === 'loading' || !d.listaEnviada) return '';
-    return '<span style="font-size:13px;margin-left:5px;cursor:default" title="Lista enviada ao cliente">📋</span>';
-  }
-
-  function situacaoBadge(d, op) {
-    if (!d || d === 'loading') return '<span style="color:#2a2a2a;font-size:10px">—</span>';
-    const escOk = d.escalado >= d.solicitado;
-    const aptOk = d.apontado >= d.solicitado;
-    // Ops fora da janela: só tem dados de escala (_soEscala), sem apontamento
-    if (d._soEscala) {
-      if (d.escalado === 0) return '<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">✗ NENHUM</span>';
-      if (escOk)            return '<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">✓ ESC OK</span>';
-      return `<span style="color:#818cf8;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
-    }
-    // Ops dentro da janela: mostra status completo com apontamentos
-    if (aptOk && escOk)   return '<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">✓ COMPLETO</span>';
-    if (d.apontado === 0 && d.escalado === 0) return '<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">✗ NENHUM</span>';
-    // Lista enviada ao cliente: sempre verde, independente de escOk
-    const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
-    if (d.apontado === 0 && listaEnviada) {
-      return `<span style="color:#4ade80;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
-    }
-    // Escala completa mas lista não enviada: roxo
-    if (d.apontado === 0 && escOk) {
-      return `<span style="color:#818cf8;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
-    }
-    if (d.apontado === 0) return `<span style="color:#f87171;font-size:10px;font-weight:700;letter-spacing:0.5px">ESC ${d.escalado}/${d.solicitado}</span>`;
-    return `<span style="color:#fb923c;font-size:10px;font-weight:700;letter-spacing:0.5px">△ APT ${d.apontado}/${d.solicitado}</span>`;
-  }
-
-  function updateMetrics() {
-    let ok = 0, inc = 0, zero = 0;
-    operations.forEach(op => {
-      if (!naJanela(op)) return;
-      const d = apontCache[op.id];
-      if (!d || d === 'loading') return;
-      if (d.apontado === 0) zero++;
-      else if (d.apontado >= d.solicitado) ok++;
-      else inc++;
-    });
-    const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    s('m-total', operations.length);
-    s('m-ok',    ok);
-    s('m-inc',   inc);
-    s('m-zero',  zero);
-  }
-
-  function setLive(label, cor) {
-    const el = document.getElementById('mon-live');
-    if (el) { el.textContent = label; el.style.color = cor; el.style.borderColor = cor + '33'; }
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────────────
