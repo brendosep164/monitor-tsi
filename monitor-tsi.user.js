@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.1
+// @version      10.2
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -54,8 +54,10 @@
     const ifr = document.getElementById(ifrId);
     if (ifr) {
       ifr.onload = null;
+      // Reseta o src para evitar que um onload atrasado dispare na próxima operação
+      try { ifr.src = 'about:blank'; } catch(e) {}
     }
-    setTimeout(processQueue, 30);
+    setTimeout(processQueue, 50);
   }
 
   function startWatchdog() {
@@ -75,7 +77,11 @@
           releaseIfr(ifrId);
         }
       });
-    }, 15000);
+      // Garante que a fila não trava mesmo se nenhum iframe disparar processQueue
+      if (fetchQueue.length > 0 && getAvailableIframe()) {
+        processQueue();
+      }
+    }, 8000);
   }
 
   // ── JANELA ──────────────────────────────────────────────────────────────────
@@ -190,6 +196,11 @@
     }, timeout);
 
     ifr.onload = function() {
+      // Ignora disparo do about:blank que vem do releaseIfr anterior
+      try {
+        const href = ifr.contentDocument && ifr.contentDocument.location && ifr.contentDocument.location.href;
+        if (!href || href === 'about:blank') return;
+      } catch(e) {}
       setTimeout(() => {
         try { fire(ifr.contentDocument); }
         catch(e) { fire(null); }
@@ -275,7 +286,8 @@
               });
             }
             const xlsLabels = ['Layout 1 (SHEIN)','Layout 2 (Cordovil)','Layout 3 (SBC)','Layout 4 (SBF)','Layout 5 (Endereço)','Layout 6 (KISOC)'];
-            doc2.querySelectorAll('a[href*="escalaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.innerText.trim(), href: a.getAttribute('href') }));
+            // PDF: "Lista p/ Assinaturas" = escalaprelistaLiderPDF_
+            doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.innerText.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') }));
             doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.innerText.trim(), href: a.getAttribute('href') }));
           } catch(e) {}
         }
@@ -413,7 +425,7 @@
     apontCache   = {};
     BG_IFRAME_IDS.forEach(id => {
       const ifr = document.getElementById(id);
-      if (ifr) ifr.onload = null;
+      if (ifr) { ifr.onload = null; try { ifr.src = 'about:blank'; } catch(e) {} }
     });
     fetchOperations();
     refreshTimer = setInterval(silentRefresh, 60 * 1000);
@@ -840,7 +852,14 @@
     const escCor = escPct >= 100 ? '#4ade80' : escPct > 0 ? '#818cf8' : '#333';
     const aptCor = aptPct >= 100 ? '#4ade80' : aptPct > 0 ? '#fb923c' : '#333';
 
+    // Escapa a chave para uso seguro em atributo HTML
+    const chaveEsc = op.chave.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
     let html = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:10px;color:#555;font-family:monospace">${op.chave}</span>
+        <button onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ copiado';btn.style.color='#4ade80';setTimeout(()=>{btn.textContent='📋 copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ erro';setTimeout(()=>{btn.textContent='📋 copiar chave';btn.style.color='';},1800)})})(this)" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#555;padding:3px 9px;border-radius:4px;font-size:10px;font-family:monospace;cursor:pointer;transition:all 0.15s">📋 copiar chave</button>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;min-width:0">
         <div style="background:rgba(255,255,255,0.03);border:1px solid #1a1a1a;border-radius:6px;padding:10px 12px;min-width:0;overflow:hidden">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -868,7 +887,7 @@
     html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center">
       <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ ESCALA ENVIADA</button>`;
     pdfLinks.forEach(l => {
-      html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 PDF${l.label ? ' · '+l.label.split(' ')[0] : ''}</a>`;
+      html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
     });
     if (xlsLinks.length > 0) {
       html += `<div class="mon-xls-menu"><button class="mon-dl-btn">📊 XLS ▾</button><div class="mon-xls-dropdown">`;
