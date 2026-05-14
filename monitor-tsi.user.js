@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.5
+// @version      10.6
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -302,6 +302,21 @@
     loadUrl(ifr, 'https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1', 14000, (doc) => {
       if (!doc) { fallback([]); return; }
 
+      // Lê p1–p8: se todos os 8 primeiros radios "Sim" estiverem marcados = lista enviada
+      let listaEnviada = false;
+      try {
+        let etapa = 0, confirmadas = 0;
+        doc.querySelectorAll('table tbody tr').forEach(row => {
+          if (etapa >= 8) return;
+          const radios = row.querySelectorAll('input[type="radio"]');
+          if (radios.length >= 2) {
+            etapa++;
+            if (radios[0].checked) confirmadas++;
+          }
+        });
+        listaEnviada = etapa >= 8 && confirmadas >= 8;
+      } catch(e) {}
+
       let escalaHref, eaptHref;
       try {
         const escalaLink = doc.querySelector('a[href*="pedidoEescala"]');
@@ -347,7 +362,7 @@
           release({
             solicitado: op.qtd, escalado: escalados.length, apontado: 0,
             colaboradores: [], escalados, faltando: escalados,
-            pdfLinks, xlsLinks, _soEscala: true
+            pdfLinks, xlsLinks, _soEscala: true, listaEnviada
           });
           return;
         }
@@ -378,7 +393,7 @@
           const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
           release({
             solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length,
-            colaboradores, escalados, faltando, pdfLinks, xlsLinks
+            colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada
           });
         });
       });
@@ -1047,12 +1062,9 @@
   }
 
   function escalaEnviadaBadge(op) {
-    const b = op.bubbles;
-    if (!b || b.length === 0) return '';
-    // Todas as bolinhas encontradas precisam ser verdes
-    const todasVerdes = b.every(p => p && p.status === 1);
-    if (!todasVerdes) return '';
-    return '<span style="font-size:11px;margin-left:4px" title="Escala enviada">✅</span>';
+    const d = apontCache[op.id];
+    if (!d || d === 'loading' || !d.listaEnviada) return '';
+    return '<span style="font-size:13px;margin-left:5px;cursor:default" title="Lista enviada ao cliente">📋</span>';
   }
 
   function situacaoBadge(d) {
