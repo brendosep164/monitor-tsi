@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      10.2
+// @version      10.3
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -33,6 +33,34 @@
   let minimized     = false;
   let refreshTimer  = null;
   let watchdogTimer = null;
+
+  // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
+  const CACHE_KEY = '_monCache_v1';
+  const CACHE_TTL = 5 * 60 * 1000; // 5 min: dados de escala/apontamento considerados frescos
+
+  function cacheSave() {
+    try {
+      const payload = {};
+      Object.entries(apontCache).forEach(([k, v]) => {
+        if (v && v !== 'loading') payload[k] = { d: v, ts: Date.now() };
+      });
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+    } catch(e) {}
+  }
+
+  function cacheLoad() {
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (!raw) return {};
+      const payload = JSON.parse(raw);
+      const now = Date.now();
+      const out = {};
+      Object.entries(payload).forEach(([k, v]) => {
+        if (v && v.d && (now - v.ts) < CACHE_TTL) out[k] = v.d;
+      });
+      return out;
+    } catch(e) { return {}; }
+  }
 
   // ── IFRAMES ─────────────────────────────────────────────────────────────────
   function criarIfr(id) {
@@ -246,7 +274,9 @@
       return;
     }
 
-    apontCache[op.id] = 'loading';
+    // Preserva cache antigo visível enquanto busca — só seta 'loading' se não tem cache
+    const cacheAnterior = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
+    if (!cacheAnterior) apontCache[op.id] = 'loading';
 
     // ── Passo 1: modal da operação ──────────────────────────────────────────
     loadUrl(ifr, 'https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1', 14000, (doc) => {
@@ -335,10 +365,11 @@
     });
   }
 
-  function enfileirar(op, callback) {
+  function enfileirar(op, callback, force) {
     if (!op.id) return;
     if (inQueue.has(op.id)) return;
-    if (apontCache[op.id] === 'loading') return;
+    if (!force && apontCache[op.id] === 'loading') return;
+    if (!force && apontCache[op.id] && apontCache[op.id] !== 'loading') return;
     inQueue.add(op.id);
     fetchQueue.push({ op, callback });
     processQueue();
@@ -423,6 +454,7 @@
     fetchQueue   = [];
     inQueue      = new Set();
     apontCache   = {};
+    try { sessionStorage.removeItem(CACHE_KEY); } catch(e) {}
     BG_IFRAME_IDS.forEach(id => {
       const ifr = document.getElementById(id);
       if (ifr) { ifr.onload = null; try { ifr.src = 'about:blank'; } catch(e) {} }
@@ -473,6 +505,7 @@
           enfileirar(op, (novo, old) => {
             updateCells(op, novo, old);
             updateMetrics();
+            cacheSave();
             if (expanded.has(op.chave)) {
               const idx = operations.findIndex(o => o.chave === op.chave);
               const det = document.getElementById('det-' + idx);
@@ -483,6 +516,7 @@
           if (!cached || cached._erro) {
             enfileirar(op, (novo) => {
               updateCells(op, novo, null);
+              cacheSave();
             });
           }
         }
@@ -730,9 +764,23 @@
       const seen = new Set();
       const ops  = opsAll.filter(o => { if (seen.has(o.chave)) return false; seen.add(o.chave); return true; });
 
+      // ── Restaura cache da sessão antes de zerar ──────────────────────────
+      const savedCache = cacheLoad();
+      const prevCache  = apontCache; // cache em memória atual (se já estava rodando)
+
       operations  = ops;
+      // Mescla: memória > sessionStorage (memória é mais recente se já estava rodando)
       apontCache  = {};
-      expanded    = new Set();
+      ops.forEach(o => {
+        if (o.id) {
+          const mem = prevCache[o.id];
+          const ses = savedCache[o.id];
+          if (mem && mem !== 'loading') apontCache[o.id] = mem;
+          else if (ses) apontCache[o.id] = ses;
+        }
+      });
+
+      expanded    = new Set([...expanded].filter(c => ops.some(o => o.chave === c)));
       monitoradas = new Set();
       fetchQueue  = [];
       inQueue     = new Set();
@@ -744,18 +792,31 @@
       const sub = document.getElementById('mon-sub');
       if (sub) sub.textContent = 'sync ' + new Date().toLocaleTimeString('pt-BR');
 
-      let loaded = 0;
+      // Mostra cache imediato enquanto re-busca tudo em background
       const total = opsComId.length;
-      updateProgress(0, total);
+      let loaded = 0;
 
+      // Marca ops com cache como _stale (desatualizadas) — continuam visíveis
+      opsComId.forEach(op => {
+        if (apontCache[op.id]) {
+          apontCache[op.id]._stale = true;
+          loaded++;
+        }
+      });
+      updateProgress(loaded, total);
+      if (loaded > 0) updateMetrics();
+
+      // Re-busca TODAS as ops em background — substitui cache quando novo dado chegar
       opsComId.forEach((op) => {
+        const hadCache = !!apontCache[op.id];
         enfileirar(op, (novo) => {
           if (dentroJanela(op)) monitoradas.add(monKey(op));
-          loaded++;
+          if (!hadCache) loaded++;
           updateProgress(loaded, total);
           updateCells(op, novo, null);
           updateMetrics();
-        });
+          cacheSave();
+        }, true); // force=true: re-busca mesmo com cache existente
       });
     };
 
