@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.0
+// @version      11.1
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -859,7 +859,7 @@
       }
       .mon-chave {
         font-family: 'Consolas', monospace;
-        font-size: 11px; color: var(--mon-text-dim);
+        font-size: 11px; color: #a0a0c0;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         letter-spacing: 0.3px;
       }
@@ -1285,7 +1285,7 @@
       tr.dataset.chave = op.chave;
 
       tr.innerHTML = `
-        <td><span class="mon-chave" title="${op.chave}">${op.chave}</span></td>
+        <td><span class="mon-chave" style="color:#a0a0c0" title="${op.chave}">${op.chave}</span></td>
         <td><span class="mon-sigla">${op.sigla}</span></td>
         <td><span class="mon-site" title="${op.site}">${op.site}</span></td>
         <td>
