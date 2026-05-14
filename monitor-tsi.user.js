@@ -1389,33 +1389,63 @@
     html += `</div>`;
 
     const faltando = d.faltando || [];
-    if (faltando.length > 0) {
-      html += `
-        <div class="mon-list-label warn">⚠ Faltando apontamento (${faltando.length})</div>
-        <table class="mon-list-table">
-          <thead><tr><th>Nome</th><th>Tipo</th></tr></thead>
-          <tbody>`;
-      faltando.forEach(c => {
-        html += `<tr><td class="name warn">${c.nome}</td><td class="tipo">${c.tipo||'—'}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    }
-
     const colab = d.colaboradores || [];
-    if (colab.length > 0) {
-      html += `
-        <div class="mon-list-label muted">Apontados (${colab.length})</div>
-        <table class="mon-list-table">
-          <thead><tr><th>Nome</th><th>Tipo</th><th>Início</th></tr></thead>
-          <tbody>`;
-      colab.forEach(c => {
-        html += `<tr><td class="name ok">${c.nome}</td><td class="tipo">${c.tipo||'—'}</td><td class="time">${c.inicio}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    }
 
     if (colab.length === 0 && faltando.length === 0) {
       html += '<div class="mon-empty-detail">Sem dados de escala/apontamento.</div>';
+    } else {
+      html += `<div class="mon-lists-grid">`;
+
+      // ── APONTADOS (esquerda) ──
+      html += `
+        <div class="mon-list-panel mon-list-panel--ok">
+          <div class="mon-list-panel-header">
+            <span class="mon-list-panel-dot" style="background:var(--mon-green)"></span>
+            <span class="mon-list-panel-title">Apontados</span>
+            <span class="mon-list-panel-count" style="background:var(--mon-green-bg);color:var(--mon-green)">${colab.length}</span>
+          </div>
+          <div class="mon-list-panel-body">`;
+      if (colab.length === 0) {
+        html += `<div class="mon-list-empty">Nenhum apontamento ainda</div>`;
+      } else {
+        colab.forEach(c => {
+          html += `
+            <div class="mon-list-row">
+              <div class="mon-list-row-name">${c.nome}</div>
+              <div class="mon-list-row-meta">
+                <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+                <span class="mon-list-row-time">${c.inicio}</span>
+              </div>
+            </div>`;
+        });
+      }
+      html += `</div></div>`;
+
+      // ── FALTANDO (direita) ──
+      html += `
+        <div class="mon-list-panel mon-list-panel--warn">
+          <div class="mon-list-panel-header">
+            <span class="mon-list-panel-dot" style="background:var(--mon-red)"></span>
+            <span class="mon-list-panel-title">Faltando</span>
+            <span class="mon-list-panel-count" style="background:var(--mon-red-bg);color:var(--mon-red)">${faltando.length}</span>
+          </div>
+          <div class="mon-list-panel-body">`;
+      if (faltando.length === 0) {
+        html += `<div class="mon-list-empty" style="color:var(--mon-green)">✓ Todos apontados</div>`;
+      } else {
+        faltando.forEach(c => {
+          html += `
+            <div class="mon-list-row">
+              <div class="mon-list-row-name" style="color:var(--mon-red)">${c.nome}</div>
+              <div class="mon-list-row-meta">
+                <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+              </div>
+            </div>`;
+        });
+      }
+      html += `</div></div>`;
+
+      html += `</div>`;
     }
     return html;
   }
