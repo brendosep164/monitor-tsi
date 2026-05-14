@@ -473,63 +473,104 @@
 
   // ── ATUALIZAÇÃO SILENCIOSA ────────────────────────────────────────────────────
   function silentRefresh() {
-    const ops = parseOpsFromDoc(document);
-    if (ops.length === 0) return;
+    const ops1 = parseOpsFromDoc(document);
+    const ifr2 = document.getElementById(IFR_PAG2);
 
-    const oldIds  = new Set(operations.map(o => o.id));
-    const newIds  = new Set(ops.map(o => o.id));
+    const processar = (opsAll) => {
+      const seen = new Set();
+      const ops  = opsAll.filter(o => { if (seen.has(o.chave)) return false; seen.add(o.chave); return true; });
+      if (ops.length === 0) return;
 
-    operations.filter(o => !newIds.has(o.id)).forEach(o => {
-      delete apontCache[o.id];
-      expanded.delete(o.chave);
-      monitoradas.delete(monKey(o));
-    });
+      const oldIds = new Set(operations.map(o => o.id));
+      const newIds = new Set(ops.map(o => o.id));
 
-    ops.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
-    operations = ops;
-    renderTable();
+      operations.filter(o => !newIds.has(o.id)).forEach(o => {
+        delete apontCache[o.id];
+        expanded.delete(o.chave);
+        monitoradas.delete(monKey(o));
+      });
 
-    ops.filter(o => o.id).forEach((op, i) => {
-      setTimeout(() => {
-        const cached = apontCache[op.id];
-        const emJanela = naJanela(op);
+      ops.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
+      operations = ops;
+      renderTable();
 
-        if (cached === 'loading') return;
+      const opsComId = ops.filter(o => o.id);
+      const total    = opsComId.length;
+      let loaded     = 0;
 
-        if (!oldIds.has(op.id)) {
-          monitoradas.add(monKey(op));
-          enfileirar(op, (novo, old) => {
-            updateCells(op, novo, old);
-            updateMetrics();
-          });
-          return;
-        }
+      // contar ja carregados e mostrar bolinha
+      opsComId.forEach(o => { if (apontCache[o.id] && apontCache[o.id] !== 'loading') loaded++; });
+      updateProgress(loaded, total);
 
-        if (emJanela) {
-          delete apontCache[op.id];
-          enfileirar(op, (novo, old) => {
-            updateCells(op, novo, old);
-            updateMetrics();
-            cacheSave();
-            if (expanded.has(op.chave)) {
-              const idx = operations.findIndex(o => o.chave === op.chave);
-              const det = document.getElementById('det-' + idx);
-              if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
-            }
-          });
-        } else {
-          if (!cached || cached._erro) {
-            enfileirar(op, (novo) => {
-              updateCells(op, novo, null);
-              cacheSave();
+      opsComId.forEach((op, i) => {
+        setTimeout(() => {
+          const cached   = apontCache[op.id];
+          const emJanela = naJanela(op);
+
+          if (cached === 'loading') return;
+
+          if (!oldIds.has(op.id)) {
+            monitoradas.add(monKey(op));
+            enfileirar(op, (novo, old) => {
+              loaded++;
+              updateProgress(loaded, total);
+              updateCells(op, novo, old);
+              updateMetrics();
             });
+            return;
           }
-        }
-      }, i * 250);
-    });
 
-    const sub = document.getElementById('mon-sub');
-    if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
+          if (emJanela) {
+            delete apontCache[op.id];
+            loaded = Math.max(0, loaded - 1);
+            updateProgress(loaded, total);
+            enfileirar(op, (novo, old) => {
+              loaded++;
+              updateProgress(loaded, total);
+              updateCells(op, novo, old);
+              updateMetrics();
+              cacheSave();
+              if (expanded.has(op.chave)) {
+                const idx = operations.findIndex(o => o.chave === op.chave);
+                const det = document.getElementById('det-' + idx);
+                if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
+              }
+            });
+          } else {
+            if (!cached || cached._erro) {
+              enfileirar(op, (novo) => {
+                loaded++;
+                updateProgress(loaded, total);
+                updateCells(op, novo, null);
+                cacheSave();
+              });
+            }
+          }
+        }, i * 250);
+      });
+
+      const sub = document.getElementById('mon-sub');
+      if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
+    };
+
+    if (!ifr2) { processar(ops1); return; }
+
+    let pag2done = false;
+    const pag2timer = setTimeout(() => {
+      if (!pag2done) { pag2done = true; processar(ops1); }
+    }, 8000);
+
+    ifr2.onload = null;
+    ifr2.src = 'https://tsi-app.com/planejamento-operacional_2';
+    ifr2.onload = function() {
+      if (pag2done) return;
+      pag2done = true;
+      clearTimeout(pag2timer);
+      setTimeout(() => {
+        try { processar([...ops1, ...parseOpsFromDoc(ifr2.contentDocument)]); }
+        catch(e) { processar(ops1); }
+      }, 1500);
+    };
   }
 
   function updateCells(op, d, old) {
