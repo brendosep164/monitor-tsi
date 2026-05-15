@@ -38,7 +38,11 @@
   let filterText  = "";
   let sortCol     = null;   // 'esc' | 'apt' | 'hora' | 'status'
   let sortDir     = 1;      // 1 = asc, -1 = desc
-  let notificadas = new Set(); // ops ja notificadas como completas
+  // ops já notificadas — persiste no localStorage (sobrevive refresh e reabrir aba)
+  const NOTIF_KEY = '_monNotificadas';
+  function notificadasLoad() { try { return new Set((JSON.parse(localStorage.getItem(NOTIF_KEY) || '[]')).map(String)); } catch(e) { return new Set(); } }
+  function notificadasSave() { try { localStorage.setItem(NOTIF_KEY, JSON.stringify([...notificadas])); } catch(e) {} }
+  let notificadas = notificadasLoad();
 
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
   const CACHE_KEY = '_monCache_v2';
@@ -760,12 +764,16 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
-    // Notifica se: tinha estado anterior e completou agora, OU se não tinha estado anterior mas já chegou completo
-    const jaNotificada = notificadas.has(op.id);
-    const completa = d.apontado >= d.solicitado && d.apontado > 0;
-    const transitou = old && old !== 'loading' && old.apontado < old.solicitado && completa;
-    const semHistorico = !old && completa && !jaNotificada;
-    if ((transitou || semHistorico) && !jaNotificada) { notify(op, d); notificadas.add(op.id); }
+    // Notifica apenas uma vez quando bater — garante que os dados são válidos e completos
+    const _nid = String(op.id);
+    const _completa = d && d !== 'loading' && !d._erro &&
+                      typeof d.apontado === 'number' && typeof d.solicitado === 'number' &&
+                      d.solicitado > 0 && d.apontado >= d.solicitado;
+    if (_completa && !notificadas.has(_nid)) {
+      notify(op, d);
+      notificadas.add(_nid);
+      notificadasSave();
+    }
   }
 
   // ── DRAG / RESIZE / MINIMIZE ──────────────────────────────────────────────────
@@ -1758,7 +1766,7 @@
     const qtdApt = d.apontado || 0;
     html += `<div class="mon-actions">
       <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>
-      <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviada</button>`;
+      <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviado</button>`;
     pdfLinks.forEach(l => {
       html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
     });
