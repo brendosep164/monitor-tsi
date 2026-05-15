@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.11
+// @version      11.15
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -188,7 +188,6 @@
 
   function notify(op, d) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    if ((op.time || '') !== 'VD') return;
     try { new Notification('✅ Operação Completa — TSI', { body: `${op.sigla} | ${op.site}\n${d.apontado}/${d.solicitado} apontados`, icon: AVATAR_URL }); } catch(e) {}
   }
 
@@ -515,9 +514,10 @@
         }
 
         if (emJanela) {
+          const oldCache = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
           delete apontCache[op.id];
-          enfileirar(op, (novo, old) => {
-            updateCells(op, novo, old);
+          enfileirar(op, (novo) => {
+            updateCells(op, novo, oldCache);
             updateMetrics();
             cacheSave();
             if (expanded.has(op.chave)) {
@@ -642,6 +642,8 @@
         --mon-red-bg:    rgba(248,113,113,0.08);
         --mon-indigo:    #818cf8;
         --mon-indigo-bg: rgba(129,140,248,0.1);
+        --mon-gold:      #fbbf24;
+        --mon-gold-bg:   rgba(251,191,36,0.1);
         --mon-radius:    10px;
         --mon-radius-sm: 6px;
       }
@@ -917,7 +919,7 @@
       }
       .mon-status-badge.completo  { color: var(--mon-green);  background: var(--mon-green-bg); }
       .mon-status-badge.parcial   { color: var(--mon-amber);  background: var(--mon-amber-bg); }
-      .mon-status-badge.esc-ok    { color: var(--mon-indigo); background: var(--mon-indigo-bg); }
+      .mon-status-badge.esc-ok    { color: var(--mon-gold); background: var(--mon-gold-bg); }
       .mon-status-badge.nenhum    { color: var(--mon-red);    background: var(--mon-red-bg); }
       .mon-status-badge.neutro    { color: var(--mon-text-faint); background: transparent; }
       .mon-envelope { font-size: 12px; margin-left: 4px; opacity: 0.8; }
@@ -1256,7 +1258,7 @@
 
   // ── BADGES ────────────────────────────────────────────────────────────────────
   function colorForPct(pct) {
-    if (pct >= 100) return 'var(--mon-green)';
+    if (pct >= 100) return 'var(--mon-gold)';
     if (pct > 0)    return 'var(--mon-indigo)';
     return 'var(--mon-text-faint)';
   }
@@ -1627,13 +1629,18 @@
 
       opsComId.forEach((op) => {
         const hadCache = !!apontCache[op.id];
+        const prevDado = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
         enfileirar(op, (novo) => {
           if (dentroJanela(op)) monitoradas.add(monKey(op));
           if (!hadCache) loaded++;
           updateProgress(loaded, total);
-          updateCells(op, novo, null);
+          updateCells(op, novo, prevDado);
           updateMetrics();
           cacheSave();
+          // Notifica operações já completas no carregamento inicial (sem cache anterior)
+          if (!prevDado && novo && novo !== 'loading' && novo.apontado >= novo.solicitado && novo.apontado > 0) {
+            notify(op, novo);
+          }
         }, true);
       });
     };
