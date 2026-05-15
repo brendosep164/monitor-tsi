@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.15
+// @version      11.17
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
+// @match        https://tsi-app.com/pedidoEapt*
 // @grant        none
+// @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
 // @updateURL    https://raw.githubusercontent.com/brendosep164/monitor-tsi/main/monitor-tsi.user.js
 // @downloadURL  https://raw.githubusercontent.com/brendosep164/monitor-tsi/main/monitor-tsi.user.js
 // ==/UserScript==
@@ -170,7 +172,10 @@
     mainTable.querySelectorAll('tr').forEach(row => {
       const cells = row.querySelectorAll('td');
       if (cells.length < 9) return;
-      const linkEl = row.querySelector('a[onclick*="planejamento-operacional-edit"]');
+      const allLinks = [...row.querySelectorAll('a[onclick*="planejamento-operacional-edit"]')];
+      const linkEl = allLinks[0] || null;
+      const linkElView = allLinks[1] || null; // olhinho = segundo link
+      const eyeLink = row.querySelector('a[href*="pedidoEgeral"]') || row.querySelector('a[href*="pedidoE"]');
       let id = '';
       if (linkEl) {
         const match = linkEl.getAttribute('onclick').match(/planejamento-operacional-edit([A-Za-z0-9+\/=_-]+?)_\d+[',\s]/);
@@ -182,7 +187,13 @@
         const b = parseBubble(img);
         if (b) bubbles.push(b);
       });
-      ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider: g(11), status: g(24).toLowerCase(), time: g(8), id, bubbles });
+      const liderCell = cells[11];
+      const lider = liderCell?.getAttribute('title') || liderCell?.getAttribute('data-original-title') || liderCell?.textContent?.trim() || '';
+      window._monLinkEls = window._monLinkEls || {}; window._monLinkElsView = window._monLinkElsView || {}; window._monEyeHrefs = window._monEyeHrefs || {};
+      if (linkEl && id) window._monLinkEls[id] = linkEl;
+      if (linkElView && id) window._monLinkElsView[id] = linkElView;
+      if (eyeLink && id) window._monEyeHrefs[id] = eyeLink.getAttribute('href');
+      ops.push({ chave: g(0), sigla: g(1), site: g(2), qtd: parseInt(g(3)) || 0, hora: g(9), lider, liderCompleto: lider, status: g(24).toLowerCase(), time: g(8), id, bubbles });
     });
     return ops;
   }
@@ -370,18 +381,28 @@
                 if (row.querySelector('td.strikethrough')) return;
                 const cells = row.querySelectorAll('td');
                 if (cells.length < 5) return;
-                const nome = cells[2]?.textContent?.trim();
-                const cpf  = cells[3]?.textContent?.trim();
+                const nome    = cells[2]?.textContent?.trim();
+                const cpf     = cells[3]?.textContent?.trim();
                 if (!nome || nome.length < 3) return;
-                escalados.push({ nome, cpf, tipo: cells[4]?.textContent?.trim() });
+                const datacad = cells[12]?.textContent?.trim() || '';
+                const advisor = cells[13]?.textContent?.trim() || '';
+                escalados.push({ nome, cpf, tipo: cells[4]?.textContent?.trim(), datacad, advisor });
               });
             }
             const xlsLabels = ['Layout 1 (SHEIN)','Layout 2 (Cordovil)','Layout 3 (SBC)','Layout 4 (SBF)','Layout 5 (Endereço)','Layout 6 (KISOC)'];
-            doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.textContent.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') }));
+            // Lider: extrai o nome completo da coluna advisor (col 13) da tabela de escala
+            const lideresSet = new Set();
+            escalados.forEach(e => { if (e.advisor && e.advisor.length > 2) lideresSet.add(e.advisor); });
+            const lideres = lideresSet.size > 0
+              ? [...lideresSet]
+              : (op.liderCompleto ? [op.liderCompleto] : (op.lider ? [op.lider] : []));
+            doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => {
+              pdfLinks.push({ label: a.textContent.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') });
+            });
             doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.textContent.trim(), href: a.getAttribute('href') }));
 
             if (!naJanela(op)) {
-              release({ solicitado: op.qtd, escalado: escalados.length, apontado: 0, colaboradores: [], escalados, faltando: escalados, pdfLinks, xlsLinks, _soEscala: true, listaEnviada, todosConfirmados });
+              release({ solicitado: op.qtd, escalado: escalados.length, apontado: 0, colaboradores: [], escalados, faltando: escalados, pdfLinks, xlsLinks, _soEscala: true, listaEnviada, todosConfirmados, lideres });
               return;
             }
 
@@ -401,12 +422,16 @@
                     if (!nome || nome.length < 3) return;
                     if (origem === 'FALTA') return;
                     if (!inicio) return;
-                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio });
+                    // DIST do INÍCIO OPORTUNIDADE = coluna 10, formato "0,08 km" ou "399,56 km"
+                    const distRaw = cells[10]?.textContent?.trim() || '';
+                    const distMatch = distRaw.match(/([\d.,]+)\s*km/i);
+                    const distNum = distMatch ? parseFloat(distMatch[1].replace(',', '.')) : 0;
+                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio, dist: distNum });
                   });
                 }
                 const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
                 const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
-                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada, todosConfirmados });
+                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada, todosConfirmados, eaptHref, lideres });
               });
           });
       })
@@ -591,7 +616,261 @@
     };
   }
 
-  window._monEnviarReport = enviarReport;
+  // ── GERAR RELATÓRIO WHATSAPP ──────────────────────────────────────────────────
+  window._monGerarRelatorio = function(opId, btnEl) {
+    const d = apontCache[opId];
+    if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
+    const op = operations.find(o => o.id === opId);
+    if (!op) return;
+
+    // Colaboradores entregues = apontados com dist <= 2km
+    // dist=0 significa que não encontrou dado de distância — conta normalmente
+    const entregues = (d.colaboradores || []).filter(c => c.dist === 0 || c.dist <= 2);
+    const entregueCount = entregues.length;
+
+    // Líderes: prioridade = lideres da escala; fallback = op.liderCompleto ou op.lider
+    const lideres = (d.lideres && d.lideres.length > 0)
+      ? d.lideres
+      : (op.liderCompleto ? [op.liderCompleto] : (op.lider ? [op.lider] : ['—']));
+
+    // Data de hoje
+    const hoje = new Date();
+    const dia  = String(hoje.getDate()).padStart(2,'0');
+    const mes  = String(hoje.getMonth()+1).padStart(2,'0');
+    const ano  = hoje.getFullYear();
+
+    // Nome completo do líder: prioriza liderCompleto, fallback para lider
+    const lideresCompletos = lideres.map(l => {
+      if (l && l !== '—') return l;
+      return op.liderCompleto || op.lider || '—';
+    });
+
+    const texto = [
+      `*💚 REPORT - TIME VERDE 💚*`,
+      ``,
+      `📅 ${dia}/${mes}/${ano}`,
+      ``,
+      `*CHAVE DA OPERAÇÃO:* ${op.chave}`,
+      `*HORÁRIO:* ${op.hora || '—'}`,
+      ``,
+      `*SOLICITADO:* ${String(op.qtd).padStart(2,'0')}`,
+      `*ENTREGUE:* ${String(entregueCount).padStart(2,'0')}`,
+      ``,
+      `*LÍDER:* ${lideresCompletos.join(' / ')}`,
+    ].join('\n');
+
+    navigator.clipboard.writeText(texto)
+      .then(() => {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '✅ Copiado!';
+        btnEl.style.color = 'var(--mon-green)';
+        setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; }, 2500);
+      })
+      .catch(() => {
+        // Fallback: abre prompt com o texto para copiar manualmente
+        prompt('Copie o relatório:', texto);
+      });
+  };
+
+
+
+  // ── PRINT APONTAMENTOS ────────────────────────────────────────────────────────
+  // Carrega a página de apontamentos em iframe oculto (mesmo domínio = sem CORS),
+  // aplica html2canvas direto no documento do iframe e baixa/copia o PNG.
+  window._monPrintApontamentos = function(opId, btnEl) {
+    const d = apontCache[opId];
+    if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
+    const href = d.eaptHref;
+    if (!href) { alert('Clique em ↻ Atualizar para habilitar o print desta operação.'); return; }
+
+    const origHTML = btnEl.innerHTML;
+    btnEl.disabled = true;
+    btnEl.innerHTML = '⏳ Carregando…';
+
+    const fail = (msg) => {
+      btnEl.innerHTML = '✗ ' + msg;
+      setTimeout(() => { btnEl.innerHTML = origHTML; btnEl.disabled = false; }, 3500);
+    };
+
+    // Cria iframe oculto com tamanho real para renderização correta
+    const printIfr = document.createElement('iframe');
+    printIfr.id = '_mon_print_ifr';
+    printIfr.style.cssText = [
+      'position:fixed',
+      'top:-9999px',
+      'left:-9999px',
+      'width:1400px',
+      'height:900px',
+      'opacity:0',
+      'pointer-events:none',
+      'border:none',
+      'z-index:-1',
+    ].join(';');
+    document.body.appendChild(printIfr);
+
+    const cleanup = () => { try { document.body.removeChild(printIfr); } catch(e) {} };
+
+    const safetyTimeout = setTimeout(() => { cleanup(); fail('Timeout ao carregar'); }, 30000);
+
+    printIfr.onload = () => {
+      // Aguarda o DOM do iframe renderizar completamente
+      setTimeout(() => {
+        try {
+          const ifrDoc = printIfr.contentDocument || printIfr.contentWindow.document;
+          const ifrWin = printIfr.contentWindow;
+
+          // Injeta html2canvas no iframe (mesmo domínio, funciona sem CORS)
+          const script = ifrDoc.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+          script.onload = () => {
+            setTimeout(() => {
+              try {
+                // ── Acha o contador "X apontamento(s) registrado(s)"
+                // Usa TreeWalker nos nós de TEXTO para achar o nó mais específico,
+                // evitando pegar o textContent herdado de ancestrais (que engloba a página toda).
+                let counterEl = null;
+                const walker = ifrDoc.createTreeWalker(ifrDoc.body, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                  if (/\d+\s*apontamento.*registrado/i.test(node.nodeValue)) {
+                    // Sobe até incluir badge FALTAS mas sem englobar a tabela
+                    let t = node.parentElement;
+                    for (let i = 0; i < 4; i++) {
+                      if (!t || !t.parentElement || t.parentElement === ifrDoc.body) break;
+                      const p = t.parentElement;
+                      if (p.querySelector('table')) break;
+                      t = p;
+                    }
+                    counterEl = t;
+                    break;
+                  }
+                }
+
+                // ── Acha a tabela principal
+                const tbl = ifrDoc.querySelector('table.tables.table-fixed.card-table:not(.table-bordered)')
+                         || ifrDoc.querySelector('table.card-table')
+                         || ifrDoc.querySelector('table');
+
+                if (!tbl) { clearTimeout(safetyTimeout); cleanup(); fail('Tabela não encontrada'); return; }
+
+                // ── Encontra coluna DATA para saber onde cortar à direita
+                const theadRows = Array.from(tbl.querySelectorAll('thead tr'));
+                let dataThEl = null;
+                if (theadRows[1]) {
+                  for (const cell of theadRows[1].querySelectorAll('th,td')) {
+                    if (/^DATA$/i.test(cell.textContent.trim())) { dataThEl = cell; break; }
+                  }
+                }
+                if (!dataThEl && theadRows[0]) {
+                  for (const cell of theadRows[0].querySelectorAll('th,td')) {
+                    if (/^DATA$/i.test(cell.textContent.trim())) { dataThEl = cell; break; }
+                  }
+                }
+
+                // ── Calcula área de recorte
+                const scrollX = ifrWin.scrollX || 0;
+                const scrollY = ifrWin.scrollY || 0;
+                // Se não achou o contador, usa o topo da tabela menos 40px para garantir espaço
+                const counterRect = counterEl
+                  ? counterEl.getBoundingClientRect()
+                  : { top: tbl.getBoundingClientRect().top - 40, left: tbl.getBoundingClientRect().left };
+                const tblRect    = tbl.getBoundingClientRect();
+                const lastRow    = tbl.querySelector('tbody tr:last-child');
+                const bottomRect = lastRow ? lastRow.getBoundingClientRect() : tblRect;
+                const dataRect   = dataThEl ? dataThEl.getBoundingClientRect() : null;
+
+                const cropTop    = counterRect.top  - 10 + scrollY;
+                const cropLeft   = counterRect.left - 6  + scrollX;
+                const cropBottom = bottomRect.bottom + 6 + scrollY;
+                const cropRight  = dataRect ? dataRect.right + 6 + scrollX : tblRect.right + 6 + scrollX;
+
+                btnEl.innerHTML = '📸 Gerando…';
+
+                // ── Captura com html2canvas diretamente no documento do iframe
+                ifrWin.html2canvas(ifrDoc.body, {
+                  backgroundColor: '#ffffff',
+                  scale: 2,
+                  useCORS: true,
+                  allowTaint: true,
+                  logging: false,
+                  scrollX: 0,
+                  scrollY: 0,
+                  windowWidth: ifrDoc.body.scrollWidth,
+                  windowHeight: ifrDoc.body.scrollHeight,
+                }).then(canvas => {
+                  clearTimeout(safetyTimeout);
+
+                  const scale = 2;
+                  const sx = Math.round(cropLeft  * scale);
+                  const sy = Math.round(Math.max(0, cropTop) * scale);
+                  const sw = Math.max(1, Math.round((cropRight  - cropLeft) * scale));
+                  const sh = Math.max(1, Math.round((cropBottom - cropTop)  * scale));
+
+                  const out = document.createElement('canvas');
+                  out.width  = sw;
+                  out.height = sh;
+                  out.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+                  const dataUrl = out.toDataURL('image/png');
+
+                  // ── Tenta clipboard; se falhar faz download automático
+                  const doDownload = () => {
+                    const a = document.createElement('a');
+                    a.href = dataUrl;
+                    const opChave = (operations.find(o => o.id === opId) || {}).chave || opId;
+                    a.download = 'apontamentos_' + opChave + '_' + new Date().toISOString().slice(0,16).replace(/[T:]/g,'-') + '.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  };
+
+                  const onSuccess = () => {
+                    btnEl.innerHTML = '✅ Print copiado!';
+                    btnEl.style.color = 'var(--mon-green)';
+                    setTimeout(() => { btnEl.innerHTML = origHTML; btnEl.style.color = ''; btnEl.disabled = false; }, 2500);
+                  };
+                  const onDownloaded = () => {
+                    btnEl.innerHTML = '✅ Baixado!';
+                    btnEl.style.color = 'var(--mon-green)';
+                    setTimeout(() => { btnEl.innerHTML = origHTML; btnEl.style.color = ''; btnEl.disabled = false; }, 2500);
+                  };
+
+                  if (navigator.clipboard && navigator.clipboard.write) {
+                    fetch(dataUrl).then(r => r.blob()).then(blob => {
+                      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+                        .then(onSuccess)
+                        .catch(() => { doDownload(); onDownloaded(); });
+                    }).catch(() => { doDownload(); onDownloaded(); });
+                  } else {
+                    doDownload();
+                    onDownloaded();
+                  }
+
+                  cleanup();
+                }).catch(e => {
+                  clearTimeout(safetyTimeout);
+                  cleanup();
+                  fail('Erro canvas: ' + e.message);
+                });
+              } catch(e) {
+                clearTimeout(safetyTimeout);
+                cleanup();
+                fail('Erro: ' + e.message);
+              }
+            }, 800);
+          };
+          script.onerror = () => { clearTimeout(safetyTimeout); cleanup(); fail('Erro ao carregar html2canvas'); };
+          ifrDoc.head.appendChild(script);
+        } catch(e) {
+          clearTimeout(safetyTimeout);
+          cleanup();
+          fail('Erro de acesso ao iframe: ' + e.message);
+        }
+      }, 1800);
+    };
+
+    printIfr.src = 'https://tsi-app.com/' + href;
+  };
 
   // ── FILTRO / SORT ─────────────────────────────────────────────────────────────
   let activeStatusFilter = 'all';
@@ -615,6 +894,7 @@
     if (activeStatusFilter === 'completo') return aptOk && escOk;
     if (activeStatusFilter === 'parcial')  return d.apontado > 0 && !aptOk;
     if (activeStatusFilter === 'esc')      return d.apontado === 0 && escOk;
+    if (activeStatusFilter === 'esc_inc')  return !escOk;
     if (activeStatusFilter === 'nenhum')   return d.apontado === 0 && d.escalado === 0;
     return true;
   }
@@ -1249,6 +1529,14 @@
       .mon-send-btn--err { color: var(--mon-red) !important; border-color: rgba(248,113,113,0.3) !important; background: var(--mon-red-bg) !important; }
       .mon-send-btn--report { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3) !important; color: var(--mon-amber) !important; }
       .mon-send-btn--report:hover { background: rgba(245,158,11,0.2); }
+      .mon-send-btn--print { background: rgba(52,212,116,0.08); border-color: rgba(52,212,116,0.3) !important; color: var(--mon-green) !important; }
+      .mon-send-btn--print:hover { background: rgba(52,212,116,0.18); }
+      .mon-send-btn--relatorio { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.3) !important; color: #22c55e !important; }
+      .mon-send-btn--relatorio:hover { background: rgba(34,197,94,0.18); }
+      .mon-send-btn--open { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.3) !important; color: #818cf8 !important; text-decoration: none; }
+      .mon-send-btn--open:hover { background: rgba(99,102,241,0.18); }
+      .mon-open-btn { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.3); color: #818cf8 !important; text-decoration: none; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+      .mon-open-btn:hover { background: rgba(99,102,241,0.2); }
 
       /* ── FILTER BAR ── */
       #mon-filter-bar {
@@ -1287,6 +1575,7 @@
       .mon-chip--completo.active { background: var(--mon-green-bg); border-color: rgba(52,212,116,0.4); color: var(--mon-green); }
       .mon-chip--parcial.active  { background: var(--mon-amber-bg); border-color: rgba(245,158,11,0.4); color: var(--mon-amber); }
       .mon-chip--esc.active      { background: var(--mon-indigo-bg); border-color: rgba(129,140,248,0.4); color: var(--mon-indigo); }
+      .mon-chip--esc-inc.active  { background: rgba(251,146,60,0.12); border-color: rgba(251,146,60,0.4); color: #fb923c; }
       .mon-chip--nenhum.active   { background: var(--mon-red-bg); border-color: rgba(248,113,113,0.4); color: var(--mon-red); }
 
       /* ── SORT HEADERS ── */
@@ -1551,6 +1840,7 @@
             <button class="mon-chip mon-chip--completo" onclick="window._monSetStatusFilter('completo',this)">✓ Completo</button>
             <button class="mon-chip mon-chip--parcial"  onclick="window._monSetStatusFilter('parcial',this)">△ Parcial</button>
             <button class="mon-chip mon-chip--esc"      onclick="window._monSetStatusFilter('esc',this)">Esc. ok</button>
+            <button class="mon-chip mon-chip--esc-inc"  onclick="window._monSetStatusFilter('esc_inc',this)">⚠ Esc. incompleta</button>
             <button class="mon-chip mon-chip--nenhum"   onclick="window._monSetStatusFilter('nenhum',this)">✗ Nenhum</button>
           </div>
         </div>
@@ -1775,6 +2065,7 @@
           onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ Copiado';btn.style.color='var(--mon-green)';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ Erro';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)})})(this)">
           ⎘ Copiar chave
         </button>
+        <button class="mon-copy-btn mon-open-btn" onclick="event.stopPropagation();var el=window._monLinkEls&&window._monLinkEls['${op.id}'];if(el){loadiframe('planejamento-operacional-edit${op.id}_3','Editar Planejamento',570,'modal1500');if(window.$)$('#modal1500').modal('show');}">🔎 Abrir OP</button>
       </div>
 
       <div class="mon-stat-grid">
@@ -1800,8 +2091,10 @@
     const pdfLinks = d.pdfLinks || [], xlsLinks = d.xlsLinks || [];
     const qtdApt = d.apontado || 0;
     html += `<div class="mon-actions">
-      <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>
-      <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviado</button>`;
+      <button class="mon-send-btn" onclick="event.stopPropagation();if(confirm('Confirmar envio de escala?'))window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>
+      <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();if(confirm('Confirmar envio de report?'))window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviado</button>
+      <button class="mon-send-btn mon-send-btn--print" onclick="event.stopPropagation();window._monPrintApontamentos('${op.id}',this)">🖨️ Print apontamentos</button>
+      <button class="mon-send-btn mon-send-btn--relatorio" onclick="event.stopPropagation();window._monGerarRelatorio('${op.id}',this)">📲 Relatório WhatsApp</button>`;
     pdfLinks.forEach(l => {
       html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
     });
@@ -1865,6 +2158,8 @@
               <div class="mon-list-row-name" style="color:var(--mon-red)">${c.nome}</div>
               <div class="mon-list-row-meta">
                 <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+                ${c.advisor ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">👤 ${c.advisor}</span>` : ''}
+                ${c.datacad ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">🕐 ${c.datacad}</span>` : ''}
               </div>
             </div>`;
         });
