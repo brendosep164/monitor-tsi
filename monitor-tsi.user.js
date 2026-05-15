@@ -38,6 +38,7 @@
   let filterText  = "";
   let sortCol     = null;   // 'esc' | 'apt' | 'hora' | 'status'
   let sortDir     = 1;      // 1 = asc, -1 = desc
+  let notificadas = new Set(); // ops ja notificadas como completas
 
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
   const CACHE_KEY = '_monCache_v2';
@@ -759,7 +760,13 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
-    if (old && old !== 'loading' && old.apontado < old.solicitado && d.apontado >= d.solicitado && d.apontado > 0) notify(op, d);
+    // Notifica se: tinha estado anterior e completou agora, OU se não tinha estado anterior mas já chegou completo
+    const jaNotificada = notificadas.has(op.id);
+    const completa = d.apontado >= d.solicitado && d.apontado > 0;
+    const transitou = old && old !== 'loading' && old.apontado < old.solicitado && completa;
+    const semHistorico = !old && completa && !jaNotificada;
+    if ((transitou || semHistorico) && !jaNotificada) { notify(op, d); notificadas.add(op.id); }
+    if (!completa) notificadas.delete(op.id); // reseta se a op voltar a ser incompleta
   }
 
   // ── DRAG / RESIZE / MINIMIZE ──────────────────────────────────────────────────
