@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.5
+// @version      11.11
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -91,9 +91,9 @@
     if (watchdogTimer) clearInterval(watchdogTimer);
     watchdogTimer = setInterval(() => {
       const now = Date.now();
-      Object.entries(iframesInUse).forEach(([ifrId, info]) => {
+      Object.entries(iframesInUse).forEach(([key, info]) => {
         if (now - info.since > 35000) {
-          console.warn('[Monitor] watchdog destravou iframe', ifrId, 'op:', info.opId);
+          console.warn('[Monitor] watchdog destravou', key, 'op:', info.opId);
           if (info.opId && apontCache[info.opId] === 'loading') {
             apontCache[info.opId] = {
               solicitado: 0, escalado: 0, apontado: 0,
@@ -101,10 +101,11 @@
               pdfLinks: [], xlsLinks: [], _erro: true
             };
           }
-          releaseIfr(ifrId);
+          delete iframesInUse[key];
+          activeFetches = Math.max(0, activeFetches - 1);
         }
       });
-      if (fetchQueue.length > 0 && getAvailableIframe()) {
+      if (fetchQueue.length > 0 && activeFetches < MAX_CONCURRENT) {
         processQueue();
       }
     }, 8000);
@@ -149,10 +150,10 @@
       const linkEl = row.querySelector('a[onclick*="planejamento-operacional-edit"]');
       let id = '';
       if (linkEl) {
-        const match = linkEl.getAttribute('onclick').match(/planejamento-operacional-edit([A-Za-z0-9+\/=_-]+)_1/);
+        const match = linkEl.getAttribute('onclick').match(/planejamento-operacional-edit([A-Za-z0-9+\/=_-]+?)_\d+[',\s]/);
         if (match) id = match[1];
       }
-      const g = i => cells[i]?.innerText?.trim() || '';
+      const g = i => cells[i]?.textContent?.trim() || '';
       const bubbles = [];
       row.querySelectorAll('img[src*="statusbubble_"]').forEach(img => {
         const b = parseBubble(img);
@@ -217,12 +218,31 @@
     }
   }
 
+  // ── FETCH COM DOMPARSER (substitui iframes) ──────────────────────────────────
+  // Como o script roda no contexto da página (mesma origem), fetch funciona direto.
+  function fetchDoc(url) {
+    return fetch(url, { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(html => {
+        const parser = new DOMParser();
+        return parser.parseFromString(html, 'text/html');
+      });
+  }
+
   // ── FILA COM DEDUPLICAÇÃO ────────────────────────────────────────────────────
+  // Concorrência controlada por semáforo (máx 4 simultâneos)
+  let activeFetches = 0;
+  const MAX_CONCURRENT = 4;
+
   function getAvailableIframe() {
     return BG_IFRAME_IDS.find(id => !iframesInUse[id]);
   }
 
   function loadUrl(ifr, url, timeout, onDone) {
+    // Mantido apenas para compatibilidade com enviarEscala
     let fired = false;
     const fire = (result) => {
       if (fired) return;
@@ -231,10 +251,7 @@
       ifr.onload = null;
       onDone(result);
     };
-    const timer = setTimeout(() => {
-      console.warn('[Monitor] timeout', url.split('?')[0].split('/').pop());
-      fire(null);
-    }, timeout);
+    const timer = setTimeout(() => fire(null), timeout);
     ifr.onload = function() {
       try {
         const href = ifr.contentDocument && ifr.contentDocument.location && ifr.contentDocument.location.href;
@@ -250,19 +267,25 @@
 
   function processQueue() {
     if (fetchQueue.length === 0) return;
-    const ifrId = getAvailableIframe();
-    if (!ifrId) return;
+    if (activeFetches >= MAX_CONCURRENT) return;
 
     const { op, callback } = fetchQueue.shift();
     inQueue.delete(op.id);
 
-    iframesInUse[ifrId] = { opId: op.id, since: Date.now() };
-    const ifr = document.getElementById(ifrId);
+    if (!op.id) { setTimeout(processQueue, 10); return; }
+
+    activeFetches++;
+    // Marca um slot de iframe como "em uso" só pro watchdog continuar funcionando
+    const fakeId = '_fetch_' + op.id;
+    iframesInUse[fakeId] = { opId: op.id, since: Date.now() };
+
+    const oldCache = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
 
     const release = (dados) => {
+      activeFetches--;
+      delete iframesInUse[fakeId];
       if (dados !== null) apontCache[op.id] = dados;
-      releaseIfr(ifrId);
-      callback(apontCache[op.id], null);
+      callback(apontCache[op.id], oldCache);
       updateMetrics();
       setTimeout(processQueue, 30);
     };
@@ -275,27 +298,23 @@
       });
     };
 
-    if (!op.id) { releaseIfr(ifrId); return; }
+    if (!apontCache[op.id]) apontCache[op.id] = 'loading';
 
-    const cacheAnterior = (apontCache[op.id] && apontCache[op.id] !== 'loading') ? apontCache[op.id] : null;
-    if (!cacheAnterior) apontCache[op.id] = 'loading';
+    // 1) Busca a página da operação para pegar os links de escala e apontamento
+    fetchDoc('https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1')
+      .then(doc => {
+        let listaEnviada = false;
+        try {
+          let etapa = 0, confirmadas = 0;
+          doc.querySelectorAll('table tbody tr').forEach(row => {
+            if (etapa >= 8) return;
+            const radios = row.querySelectorAll('input[type="radio"]');
+            if (radios.length >= 2) { etapa++; if (radios[0].checked) confirmadas++; }
+          });
+          listaEnviada = etapa >= 8 && confirmadas >= 8;
+        } catch(e) {}
 
-    loadUrl(ifr, 'https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1', 14000, (doc) => {
-      if (!doc) { fallback([]); return; }
-
-      let listaEnviada = false;
-      try {
-        let etapa = 0, confirmadas = 0;
-        doc.querySelectorAll('table tbody tr').forEach(row => {
-          if (etapa >= 8) return;
-          const radios = row.querySelectorAll('input[type="radio"]');
-          if (radios.length >= 2) { etapa++; if (radios[0].checked) confirmadas++; }
-        });
-        listaEnviada = etapa >= 8 && confirmadas >= 8;
-      } catch(e) {}
-
-      let escalaHref, eaptHref;
-      try {
+        let escalaHref, eaptHref;
         const escalaLink = doc.querySelector('a[href*="pedidoEescala"]');
         const eaptLink   = doc.querySelector('a[href*="pedidoEapt"]');
         if (escalaLink && eaptLink) {
@@ -307,12 +326,11 @@
           escalaHref = eg.getAttribute('href').replace('pedidoEgeral', 'pedidoEescala');
           eaptHref   = eg.getAttribute('href').replace('pedidoEgeral', 'pedidoEapt');
         }
-      } catch(e) { fallback([]); return; }
 
-      loadUrl(ifr, 'https://tsi-app.com/' + escalaHref, 14000, (doc2) => {
-        const escalados = [], pdfLinks = [], xlsLinks = [];
-        if (doc2) {
-          try {
+        // 2) Busca escala
+        return fetchDoc('https://tsi-app.com/' + escalaHref)
+          .then(doc2 => {
+            const escalados = [], pdfLinks = [], xlsLinks = [];
             const tbl = doc2.querySelector('table.tables.table-fixed.card-table.table-bordered');
             if (tbl) {
               tbl.querySelectorAll('tbody tr').forEach(row => {
@@ -320,57 +338,47 @@
                 if (row.querySelector('td.strikethrough')) return;
                 const cells = row.querySelectorAll('td');
                 if (cells.length < 5) return;
-                const nome = cells[2]?.innerText?.trim();
-                const cpf  = cells[3]?.innerText?.trim();
+                const nome = cells[2]?.textContent?.trim();
+                const cpf  = cells[3]?.textContent?.trim();
                 if (!nome || nome.length < 3) return;
-                escalados.push({ nome, cpf, tipo: cells[4]?.innerText?.trim() });
+                escalados.push({ nome, cpf, tipo: cells[4]?.textContent?.trim() });
               });
             }
             const xlsLabels = ['Layout 1 (SHEIN)','Layout 2 (Cordovil)','Layout 3 (SBC)','Layout 4 (SBF)','Layout 5 (Endereço)','Layout 6 (KISOC)'];
-            doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.innerText.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') }));
-            doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.innerText.trim(), href: a.getAttribute('href') }));
-          } catch(e) {}
-        }
+            doc2.querySelectorAll('a[href*="escalaprelistaLiderPDF_"]').forEach(a => pdfLinks.push({ label: a.textContent.trim() || 'Lista p/ Assinaturas', href: a.getAttribute('href') }));
+            doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.textContent.trim(), href: a.getAttribute('href') }));
 
-        if (!naJanela(op)) {
-          release({
-            solicitado: op.qtd, escalado: escalados.length, apontado: 0,
-            colaboradores: [], escalados, faltando: escalados,
-            pdfLinks, xlsLinks, _soEscala: true, listaEnviada
-          });
-          return;
-        }
+            if (!naJanela(op)) {
+              release({ solicitado: op.qtd, escalado: escalados.length, apontado: 0, colaboradores: [], escalados, faltando: escalados, pdfLinks, xlsLinks, _soEscala: true, listaEnviada });
+              return;
+            }
 
-        loadUrl(ifr, 'https://tsi-app.com/' + eaptHref, 14000, (doc3) => {
-          const colaboradores = [];
-          if (doc3) {
-            try {
-              const tbl = doc3.querySelector('table.tables.table-fixed.card-table:not(.table-bordered)');
-              if (tbl) {
-                tbl.querySelectorAll('tbody tr').forEach(row => {
-                  const cells = row.querySelectorAll('td');
-                  if (cells.length < 10) return;
-                  const nome   = cells[0]?.innerText?.trim();
-                  const cpf    = cells[1]?.innerText?.trim();
-                  const origem = cells[9]?.innerText?.trim();
-                  const inicio = cells[8]?.innerText?.trim();
-                  if (!nome || nome.length < 3) return;
-                  if (origem === 'FALTA') return;
-                  if (!inicio) return;
-                  colaboradores.push({ nome, cpf, tipo: cells[2]?.innerText?.trim(), inicio });
-                });
-              }
-            } catch(e) {}
-          }
-          const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
-          const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
-          release({
-            solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length,
-            colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada
+            // 3) Busca apontamentos
+            return fetchDoc('https://tsi-app.com/' + eaptHref)
+              .then(doc3 => {
+                const colaboradores = [];
+                const tbl3 = doc3.querySelector('table.tables.table-fixed.card-table:not(.table-bordered)');
+                if (tbl3) {
+                  tbl3.querySelectorAll('tbody tr').forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length < 10) return;
+                    const nome   = cells[0]?.textContent?.trim();
+                    const cpf    = cells[1]?.textContent?.trim();
+                    const origem = cells[9]?.textContent?.trim();
+                    const inicio = cells[8]?.textContent?.trim();
+                    if (!nome || nome.length < 3) return;
+                    if (origem === 'FALTA') return;
+                    if (!inicio) return;
+                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio });
+                  });
+                }
+                const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
+                const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
+                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada });
+              });
           });
-        });
-      });
-    });
+      })
+      .catch(() => fallback([]));
   }
 
   function enfileirar(op, callback, force) {
@@ -473,96 +481,64 @@
 
   // ── ATUALIZAÇÃO SILENCIOSA ────────────────────────────────────────────────────
   function silentRefresh() {
-    const ops1 = parseOpsFromDoc(document);
-    const ifr2 = document.getElementById(IFR_PAG2);
+    // Usa apenas as ops da página atual que está sendo visualizada
+    const ops = parseOpsFromDoc(document);
+    if (ops.length === 0) return;
 
-    const processar = (opsAll) => {
-      const seen = new Set();
-      const ops  = opsAll.filter(o => { if (seen.has(o.chave)) return false; seen.add(o.chave); return true; });
-      if (ops.length === 0) return;
+    const oldIds  = new Set(operations.map(o => o.id));
+    const newIds  = new Set(ops.map(o => o.id));
 
-      const oldIds = new Set(operations.map(o => o.id));
-      const newIds = new Set(ops.map(o => o.id));
+    operations.filter(o => !newIds.has(o.id)).forEach(o => {
+      delete apontCache[o.id];
+      expanded.delete(o.chave);
+      monitoradas.delete(monKey(o));
+    });
 
-      operations.filter(o => !newIds.has(o.id)).forEach(o => {
-        delete apontCache[o.id];
-        expanded.delete(o.chave);
-        monitoradas.delete(monKey(o));
-      });
+    ops.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
+    operations = ops;
+    renderTable();
 
-      ops.forEach(o => { if (dentroJanela(o)) monitoradas.add(monKey(o)); });
-      operations = ops;
-      renderTable();
+    ops.filter(o => o.id).forEach((op, i) => {
+      setTimeout(() => {
+        const cached = apontCache[op.id];
+        const emJanela = naJanela(op);
 
-      const opsComId = ops.filter(o => o.id);
-      const total    = opsComId.length;
-      let loaded     = 0;
+        if (cached === 'loading') return;
 
-      // contar ja carregados e mostrar bolinha
-      opsComId.forEach(o => { if (apontCache[o.id] && apontCache[o.id] !== 'loading') loaded++; });
-      updateProgress(loaded, total);
+        if (!oldIds.has(op.id)) {
+          monitoradas.add(monKey(op));
+          enfileirar(op, (novo, old) => {
+            updateCells(op, novo, old);
+            updateMetrics();
+          });
+          return;
+        }
 
-      opsComId.forEach((op, i) => {
-        setTimeout(() => {
-          const cached   = apontCache[op.id];
-          const emJanela = naJanela(op);
-
-          if (cached === 'loading') return;
-
-          if (!oldIds.has(op.id)) {
-            monitoradas.add(monKey(op));
-            enfileirar(op, (novo, old) => {
-              loaded++;
-              updateProgress(loaded, total);
-              updateCells(op, novo, old);
-              updateMetrics();
-            });
-            return;
-          }
-
-          if (emJanela) {
-            delete apontCache[op.id];
-            loaded = Math.max(0, loaded - 1);
-            updateProgress(loaded, total);
-            enfileirar(op, (novo, old) => {
-              loaded++;
-              updateProgress(loaded, total);
-              updateCells(op, novo, old);
-              updateMetrics();
-              cacheSave();
-              if (expanded.has(op.chave)) {
-                const idx = operations.findIndex(o => o.chave === op.chave);
-                const det = document.getElementById('det-' + idx);
-                if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
-              }
-            });
-          } else {
-            if (!cached || cached._erro) {
-              enfileirar(op, (novo) => {
-                loaded++;
-                updateProgress(loaded, total);
-                updateCells(op, novo, null);
-                cacheSave();
-              });
+        if (emJanela) {
+          delete apontCache[op.id];
+          enfileirar(op, (novo, old) => {
+            updateCells(op, novo, old);
+            updateMetrics();
+            cacheSave();
+            if (expanded.has(op.chave)) {
+              const idx = operations.findIndex(o => o.chave === op.chave);
+              const det = document.getElementById('det-' + idx);
+              if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
             }
+          });
+        } else {
+          if (!cached || cached._erro) {
+            enfileirar(op, (novo) => {
+              updateCells(op, novo, null);
+              cacheSave();
+            });
           }
-        }, i * 250);
-      });
+        }
+      }, i * 250);
+    });
 
-      const sub = document.getElementById('mon-sub');
-      if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
-    };
-
-    const ctrl2s   = new AbortController();
-    const timer2s   = setTimeout(() => { ctrl2s.abort(); processar(ops1); }, 8000);
-    fetch('https://tsi-app.com/planejamento-operacional_2', { credentials: 'include', signal: ctrl2s.signal })
-      .then(r => r.text())
-      .then(html => {
-        clearTimeout(timer2s);
-        const doc2 = new DOMParser().parseFromString(html, 'text/html');
-        processar([...ops1, ...parseOpsFromDoc(doc2)]);
-      })
-      .catch(() => { clearTimeout(timer2s); processar(ops1); });
+    const sub = document.getElementById('mon-sub');
+    if (sub) sub.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
   }
 
   function updateCells(op, d, old) {
@@ -1325,13 +1301,13 @@
     if (d._soEscala) {
       if (d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
       if (escOk)            return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
-      return `<span class="mon-status-badge nenhum">Esc ${d.escalado}/${d.solicitado}</span>`;
+      return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
     }
     if (aptOk && escOk) return '<span class="mon-status-badge completo">✓ Completo</span>';
     if (d.apontado === 0 && d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
     const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
-    if (d.apontado === 0 && listaEnviada) return escOk ? '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>' : `<span class="mon-status-badge nenhum">Esc ${d.escalado}/${d.solicitado}</span>`;
-    if (d.apontado === 0 && escOk)        return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
+    if (d.apontado === 0 && listaEnviada) return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0 && escOk)        return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
     if (d.apontado === 0)                 return `<span class="mon-status-badge nenhum">Esc ${d.escalado}/${d.solicitado}</span>`;
     return `<span class="mon-status-badge parcial">△ Apt ${d.apontado}/${d.solicitado}</span>`;
   }
@@ -1591,10 +1567,20 @@
     startWatchdog();
   }
 
+  // ── DETECTA PÁGINA ATUAL DA URL ─────────────────────────────────────────────
+  function getCurrentPageSuffix() {
+    const match = window.location.href.match(/planejamento-operacional(_\d+)?/);
+    if (!match) return '';
+    return match[1] || ''; // ex: '' = pag1, '_2' = pag2, '_3' = pag3, etc.
+  }
+
+  function getCurrentPageUrl() {
+    const suffix = getCurrentPageSuffix();
+    return 'https://tsi-app.com/planejamento-operacional' + suffix;
+  }
+
   function fetchOperations() {
     setLive('sync', 'Sincronizando…');
-    const ops1 = parseOpsFromDoc(document);
-    const ifr2 = document.getElementById(IFR_PAG2);
 
     const finalizar = (opsAll) => {
       const seen = new Set();
@@ -1652,16 +1638,92 @@
       });
     };
 
-    const ctrl2   = new AbortController();
-    const timer2   = setTimeout(() => { ctrl2.abort(); finalizar(ops1); }, 8000);
-    fetch('https://tsi-app.com/planejamento-operacional_2', { credentials: 'include', signal: ctrl2.signal })
-      .then(r => r.text())
-      .then(html => {
-        clearTimeout(timer2);
-        const doc2 = new DOMParser().parseFromString(html, 'text/html');
-        finalizar([...ops1, ...parseOpsFromDoc(doc2)]);
-      })
-      .catch(() => { clearTimeout(timer2); finalizar(ops1); });
+    // Aguarda a tabela ter linhas (DOM pode ainda estar renderizando após navegação SPA)
+    let tentativas = 0;
+    const tentarParsear = () => {
+      const opsDoc = parseOpsFromDoc(document);
+      if (opsDoc.length > 0) {
+        console.log('[Monitor] Ops encontradas na página:', opsDoc.length);
+        finalizar(opsDoc);
+        return;
+      }
+      tentativas++;
+      if (tentativas < 10) {
+        // Tenta de novo em 800ms (até ~8s no total)
+        setTimeout(tentarParsear, 800);
+      } else {
+        console.warn('[Monitor] Nenhuma op encontrada após 10 tentativas');
+        finalizar([]);
+      }
+    };
+
+    tentarParsear();
+  }
+
+  // ── DETECTA NAVEGAÇÃO SPA (mudança de URL sem reload) ────────────────────────
+  function watchPageNavigation() {
+    let lastUrl = window.location.href;
+
+    // Observa mudanças no DOM que indiquem troca de página (paginação SPA)
+    const observer = new MutationObserver(() => {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        // Só age se ainda estiver em planejamento-operacional
+        if (!currentUrl.includes('planejamento-operacional')) return;
+        console.log('[Monitor] Navegação detectada:', currentUrl);
+        // Aguarda a nova página renderizar e então recarrega as ops
+        setTimeout(() => {
+          iframesInUse = {};
+          fetchQueue   = [];
+          inQueue      = new Set();
+          apontCache   = {};
+          fetchOperations();
+        }, 2000);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Também intercepta pushState/replaceState (navegação SPA via history API)
+    const origPush    = history.pushState.bind(history);
+    const origReplace = history.replaceState.bind(history);
+
+    history.pushState = function(...args) {
+      origPush(...args);
+      setTimeout(() => {
+        const url = window.location.href;
+        if (url !== lastUrl && url.includes('planejamento-operacional')) {
+          lastUrl = url;
+          console.log('[Monitor] pushState detectado:', url);
+          setTimeout(() => {
+            iframesInUse = {};
+            fetchQueue   = [];
+            inQueue      = new Set();
+            apontCache   = {};
+            fetchOperations();
+          }, 2000);
+        }
+      }, 100);
+    };
+
+    history.replaceState = function(...args) {
+      origReplace(...args);
+      setTimeout(() => {
+        const url = window.location.href;
+        if (url !== lastUrl && url.includes('planejamento-operacional')) {
+          lastUrl = url;
+          console.log('[Monitor] replaceState detectado:', url);
+          setTimeout(() => {
+            iframesInUse = {};
+            fetchQueue   = [];
+            inQueue      = new Set();
+            apontCache   = {};
+            fetchOperations();
+          }, 2000);
+        }
+      }, 100);
+    };
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -1670,6 +1732,7 @@
     injectButton();
     createPanel();
     if (!window._monRunning) startMonitor();
+    watchPageNavigation();
     if (Notification.permission === 'default') pedirPermissaoNotificacao();
   }, 2000);
 
