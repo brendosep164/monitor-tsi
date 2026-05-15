@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.14
+// @version      11.15
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -209,12 +209,12 @@
     });
   }
 
-  // Op considerada concluída quando todos os bubbles P1–P11 estão verdes (status 1)
-  // e há pelo menos 11 bubbles preenchidos
+  // Op considerada concluída quando todos os P1–P11 estão marcados como "Sim" no modal
+  // Usa o campo todosConfirmados gravado no cache durante o fetch da operação
   function isConcluido(op) {
-    const b = op.bubbles || [];
-    if (b.length < 11) return false; // ainda não tem todos os Ps preenchidos
-    return b.every(bubble => bubble.status === 1);
+    const d = apontCache[op.id];
+    if (!d || d === 'loading') return false;
+    return d.todosConfirmados === true;
   }
 
   function notify(op, d) {
@@ -335,15 +335,15 @@
     // 1) Busca a página da operação para pegar os links de escala e apontamento
     fetchDoc('https://tsi-app.com/planejamento-operacional-edit' + op.id + '_1')
       .then(doc => {
-        let listaEnviada = false;
+        let listaEnviada = false, todosConfirmados = false;
         try {
           let etapa = 0, confirmadas = 0;
           doc.querySelectorAll('table tbody tr').forEach(row => {
-            if (etapa >= 8) return;
             const radios = row.querySelectorAll('input[type="radio"]');
             if (radios.length >= 2) { etapa++; if (radios[0].checked) confirmadas++; }
           });
-          listaEnviada = etapa >= 8 && confirmadas >= 8;
+          listaEnviada     = etapa >= 8  && confirmadas >= 8;
+          todosConfirmados = etapa >= 11 && confirmadas >= 11;
         } catch(e) {}
 
         let escalaHref, eaptHref;
@@ -381,7 +381,7 @@
             doc2.querySelectorAll('a[href*="escalaprelistaLiderXLS"]').forEach((a, i) => xlsLinks.push({ label: xlsLabels[i] || a.textContent.trim(), href: a.getAttribute('href') }));
 
             if (!naJanela(op)) {
-              release({ solicitado: op.qtd, escalado: escalados.length, apontado: 0, colaboradores: [], escalados, faltando: escalados, pdfLinks, xlsLinks, _soEscala: true, listaEnviada });
+              release({ solicitado: op.qtd, escalado: escalados.length, apontado: 0, colaboradores: [], escalados, faltando: escalados, pdfLinks, xlsLinks, _soEscala: true, listaEnviada, todosConfirmados });
               return;
             }
 
@@ -406,7 +406,7 @@
                 }
                 const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
                 const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
-                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada });
+                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada, todosConfirmados });
               });
           });
       })
