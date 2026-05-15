@@ -894,7 +894,7 @@
     if (activeStatusFilter === 'completo') return aptOk && escOk;
     if (activeStatusFilter === 'parcial')  return d.apontado > 0 && !aptOk;
     if (activeStatusFilter === 'esc')      return d.apontado === 0 && escOk;
-    if (activeStatusFilter === 'esc_inc')  return !escOk;
+    if (activeStatusFilter === 'esc_inc')  return d.escalado > 0 && !escOk;
     if (activeStatusFilter === 'nenhum')   return d.apontado === 0 && d.escalado === 0;
     return true;
   }
