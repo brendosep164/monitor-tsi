@@ -764,12 +764,14 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
-    // Notifica apenas uma vez quando bater — garante que os dados são válidos e completos
+    // Notifica apenas se: em andamento + alguma bolinha incompleta (amarela/vermelha)
     const _nid = String(op.id);
-    const _completa = d && d !== 'loading' && !d._erro &&
-                      typeof d.apontado === 'number' && typeof d.solicitado === 'number' &&
-                      d.solicitado > 0 && d.apontado >= d.solicitado;
-    if (_completa && !notificadas.has(_nid)) {
+    const _emAndamento = (op.status || '').includes('andamento');
+    const _bolinhasIncompletas = op.bubbles && op.bubbles.length > 0 &&
+                                 op.bubbles.some(b => b.status === 2 || b.status === 3);
+    const _todasVerdes = op.bubbles && op.bubbles.length > 0 &&
+                         op.bubbles.every(b => b.status === 1);
+    if (_emAndamento && _bolinhasIncompletas && !_todasVerdes && !notificadas.has(_nid)) {
       notify(op, d);
       notificadas.add(_nid);
       notificadasSave();
