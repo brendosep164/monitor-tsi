@@ -34,6 +34,11 @@
   let refreshTimer  = null;
   let watchdogTimer = null;
 
+  // ── FILTRO / ORDENAÇÃO ──────────────────────────────────────────────────────
+  let filterText  = "";
+  let sortCol     = null;   // 'esc' | 'apt' | 'hora' | 'status'
+  let sortDir     = 1;      // 1 = asc, -1 = desc
+
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
   const CACHE_KEY = '_monCache_v2';
   const CACHE_TTL = 5 * 60 * 1000;
@@ -461,6 +466,202 @@
   }
 
   window._monEnviarEscala = enviarEscala;
+
+  // ── ENVIAR REPORT ─────────────────────────────────────────────────────────────
+  function enviarReport(opId, btnEl) {
+    const ifr = document.getElementById(IFR_ESCALA);
+    if (!ifr || !opId) return;
+
+    // Quantidade de apontados já em cache para esta operação
+    const d = apontCache[opId];
+    const qtdApontados = (d && d !== 'loading' && d.apontado != null) ? d.apontado : 0;
+
+    const origTxt = btnEl.innerHTML;
+    btnEl.disabled = true;
+    btnEl.innerHTML = 'Enviando…';
+    btnEl.style.opacity = '0.6';
+
+    let done = false;
+    const fail = (msg) => {
+      if (done) return; done = true;
+      btnEl.disabled = false;
+      btnEl.innerHTML = '✗ ' + msg;
+      btnEl.className = btnEl.className.replace('mon-send-btn', 'mon-send-btn mon-send-btn--err');
+      btnEl.style.opacity = '1';
+      setTimeout(() => { btnEl.innerHTML = origTxt; btnEl.className = btnEl.className.replace(' mon-send-btn--err', ''); }, 3000);
+    };
+    const safetyTimer = setTimeout(() => fail('timeout'), 25000);
+
+    ifr.onload = null;
+    ifr.src = 'https://tsi-app.com/planejamento-operacional-edit' + opId + '_1';
+    ifr.onload = function() {
+      setTimeout(() => {
+        if (done) return;
+        try {
+          const doc = ifr.contentDocument;
+          if (!doc || !doc.body) { fail('modal vazio'); clearTimeout(safetyTimer); return; }
+
+          let marcados = 0;
+
+          // Marca P1 a P11 com "S"
+          for (let i = 1; i <= 11; i++) {
+            const radio = doc.querySelector('input[name="p' + i + '_confirm"][value="S"]');
+            if (radio) {
+              radio.checked = true;
+              radio.dispatchEvent(new Event('change', { bubbles: true }));
+              radio.dispatchEvent(new Event('click',  { bubbles: true }));
+              marcados++;
+            }
+          }
+
+          if (marcados === 0) { fail('radios não encontrados'); clearTimeout(safetyTimer); return; }
+
+          // P10: preenche também o campo de quantidade de apontamentos
+          // Tenta selectors comuns para o campo de quantidade do P10
+          const p10QuantSelectors = [
+            'input[name="p10_qtd"]',
+            'input[name="p10_quantidade"]',
+            'input[name="p10_quant"]',
+            'input[name="p10_valor"]',
+          ];
+          let p10Input = null;
+          for (const sel of p10QuantSelectors) {
+            p10Input = doc.querySelector(sel);
+            if (p10Input) break;
+          }
+          // Fallback: procura input de texto/number dentro da mesma linha do radio do p10
+          if (!p10Input) {
+            const p10Radio = doc.querySelector('input[name="p10_confirm"]');
+            if (p10Radio) {
+              const row = p10Radio.closest('tr') || p10Radio.closest('div');
+              if (row) {
+                p10Input = row.querySelector('input[type="text"], input[type="number"]');
+              }
+            }
+          }
+          if (p10Input) {
+            p10Input.value = qtdApontados;
+            p10Input.dispatchEvent(new Event('input',  { bubbles: true }));
+            p10Input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          setTimeout(() => {
+            if (done) return;
+            const saveBtn = doc.querySelector('button[name="submitF"]');
+            if (!saveBtn) { fail('btn salvar não encontrado'); clearTimeout(safetyTimer); return; }
+            saveBtn.click();
+            setTimeout(() => {
+              if (done) return;
+              done = true;
+              clearTimeout(safetyTimer);
+              btnEl.innerHTML = '✓ Enviado!';
+              btnEl.style.opacity = '1';
+              setTimeout(() => window.location.reload(), 1500);
+            }, 2500);
+          }, 700);
+        } catch(e) { fail('erro'); clearTimeout(safetyTimer); }
+      }, 2000);
+    };
+  }
+
+  window._monEnviarReport = enviarReport;
+
+  // ── FILTRO / SORT ─────────────────────────────────────────────────────────────
+  let activeStatusFilter = 'all';
+
+  function getStatusRank(op) {
+    const d = apontCache[op.id];
+    if (!d || d === 'loading') return 99;
+    if (d.apontado >= d.solicitado && d.escalado >= d.solicitado) return 0; // completo
+    if (d.apontado > 0) return 1;  // parcial
+    if (d.escalado >= d.solicitado) return 2; // esc ok
+    if (d.escalado > 0) return 3;  // esc parcial
+    return 4; // nenhum
+  }
+
+  function matchesStatusFilter(op) {
+    if (activeStatusFilter === 'all') return true;
+    const d = apontCache[op.id];
+    if (!d || d === 'loading') return activeStatusFilter === 'nenhum';
+    const escOk = d.escalado >= d.solicitado;
+    const aptOk = d.apontado >= d.solicitado;
+    if (activeStatusFilter === 'completo') return aptOk && escOk;
+    if (activeStatusFilter === 'parcial')  return d.apontado > 0 && !aptOk;
+    if (activeStatusFilter === 'esc')      return d.apontado === 0 && escOk;
+    if (activeStatusFilter === 'nenhum')   return d.apontado === 0 && d.escalado === 0;
+    return true;
+  }
+
+  function getVisibleOps() {
+    const q = filterText.toLowerCase().trim();
+    let ops = operations.filter(op => {
+      if (q && !op.chave.toLowerCase().includes(q) &&
+               !op.sigla.toLowerCase().includes(q) &&
+               !(op.site||'').toLowerCase().includes(q) &&
+               !(op.lider||'').toLowerCase().includes(q)) return false;
+      return matchesStatusFilter(op);
+    });
+
+    if (sortCol) {
+      ops = [...ops].sort((a, b) => {
+        let va, vb;
+        const da = apontCache[a.id], db = apontCache[b.id];
+        if (sortCol === 'esc') {
+          va = (da && da !== 'loading' && a.qtd > 0) ? da.escalado / a.qtd : -1;
+          vb = (db && db !== 'loading' && b.qtd > 0) ? db.escalado / b.qtd : -1;
+        } else if (sortCol === 'apt') {
+          va = (da && da !== 'loading' && a.qtd > 0) ? da.apontado / a.qtd : -1;
+          vb = (db && db !== 'loading' && b.qtd > 0) ? db.apontado / b.qtd : -1;
+        } else if (sortCol === 'hora') {
+          va = a.hora || '99:99'; vb = b.hora || '99:99';
+        } else if (sortCol === 'status') {
+          va = getStatusRank(a); vb = getStatusRank(b);
+        }
+        if (va < vb) return -1 * sortDir;
+        if (va > vb) return  1 * sortDir;
+        return 0;
+      });
+    }
+    return ops;
+  }
+
+  window._monSetFilter = function(val) {
+    filterText = val;
+    const clearBtn = document.getElementById('mon-filter-clear');
+    if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+    renderTable();
+  };
+
+  window._monClearFilter = function() {
+    filterText = '';
+    const inp = document.getElementById('mon-filter-input');
+    if (inp) inp.value = '';
+    const clearBtn = document.getElementById('mon-filter-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    renderTable();
+  };
+
+  window._monSetStatusFilter = function(val, btnEl) {
+    activeStatusFilter = val;
+    document.querySelectorAll('.mon-chip').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+    renderTable();
+  };
+
+  window._monToggleSort = function(col, thEl) {
+    if (sortCol === col) {
+      sortDir = sortDir * -1;
+    } else {
+      sortCol = col;
+      sortDir = 1;
+    }
+    // Atualiza visual das colunas
+    document.querySelectorAll('.mon-th-sort').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+    });
+    if (thEl) thEl.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+    renderTable();
+  };
 
   // ── ATUALIZAÇÃO MANUAL ────────────────────────────────────────────────────────
   function manualRefresh() {
@@ -990,6 +1191,58 @@
       .mon-send-btn:hover { background: rgba(129,140,248,0.18); }
       .mon-send-btn:disabled { cursor: not-allowed; opacity: 0.5; }
       .mon-send-btn--err { color: var(--mon-red) !important; border-color: rgba(248,113,113,0.3) !important; background: var(--mon-red-bg) !important; }
+      .mon-send-btn--report { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3) !important; color: var(--mon-amber) !important; }
+      .mon-send-btn--report:hover { background: rgba(245,158,11,0.2); }
+
+      /* ── FILTER BAR ── */
+      #mon-filter-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+        padding: 8px 12px; border-bottom: 1px solid var(--mon-border);
+        background: var(--mon-surface); flex-shrink: 0;
+      }
+      #mon-filter-input-wrap {
+        display: flex; align-items: center; gap: 6px;
+        background: var(--mon-bg); border: 1px solid var(--mon-border2);
+        border-radius: var(--mon-radius-sm); padding: 5px 10px;
+        flex: 1; min-width: 200px;
+      }
+      #mon-filter-input-wrap:focus-within { border-color: var(--mon-indigo); }
+      .mon-filter-icon { color: var(--mon-text-dim); font-size: 14px; }
+      #mon-filter-input {
+        flex: 1; background: transparent; border: none; outline: none;
+        color: var(--mon-text); font-size: 12px; font-family: inherit;
+      }
+      #mon-filter-input::placeholder { color: var(--mon-text-faint); }
+      #mon-filter-clear {
+        background: none; border: none; color: var(--mon-text-faint);
+        cursor: pointer; font-size: 11px; padding: 0; line-height: 1;
+        display: none;
+      }
+      #mon-filter-clear:hover { color: var(--mon-red); }
+      #mon-status-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+      .mon-chip {
+        padding: 4px 10px; border-radius: 99px; font-size: 10px; font-weight: 600;
+        font-family: inherit; cursor: pointer; border: 1px solid var(--mon-border2);
+        background: transparent; color: var(--mon-text-dim);
+        transition: all 0.15s; letter-spacing: 0.3px;
+      }
+      .mon-chip:hover { background: var(--mon-surface2); color: var(--mon-text); }
+      .mon-chip.active { background: var(--mon-indigo-bg); border-color: rgba(129,140,248,0.4); color: var(--mon-indigo); }
+      .mon-chip--completo.active { background: var(--mon-green-bg); border-color: rgba(52,212,116,0.4); color: var(--mon-green); }
+      .mon-chip--parcial.active  { background: var(--mon-amber-bg); border-color: rgba(245,158,11,0.4); color: var(--mon-amber); }
+      .mon-chip--esc.active      { background: var(--mon-indigo-bg); border-color: rgba(129,140,248,0.4); color: var(--mon-indigo); }
+      .mon-chip--nenhum.active   { background: var(--mon-red-bg); border-color: rgba(248,113,113,0.4); color: var(--mon-red); }
+
+      /* ── SORT HEADERS ── */
+      .mon-th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+      .mon-th-sort:hover { color: var(--mon-text); }
+      .mon-sort-arrow { font-size: 9px; margin-left: 3px; opacity: 0.4; }
+      .mon-th-sort.sort-asc  .mon-sort-arrow { content: '▲'; opacity: 1; color: var(--mon-indigo); }
+      .mon-th-sort.sort-desc .mon-sort-arrow { content: '▼'; opacity: 1; color: var(--mon-indigo); }
+      .mon-th-sort.sort-asc  .mon-sort-arrow::after { content: '▲'; }
+      .mon-th-sort.sort-desc .mon-sort-arrow::after { content: '▼'; }
+      .mon-th-sort:not(.sort-asc):not(.sort-desc) .mon-sort-arrow::after { content: '⇅'; }
+      #mon-table thead th { white-space: nowrap; }
 
       .mon-dl-btn {
         display: inline-flex; align-items: center; gap: 5px;
@@ -1229,6 +1482,23 @@
           </div>
         </div>
 
+        <!-- FILTRO + STATUS CHIPS -->
+        <div id="mon-filter-bar">
+          <div id="mon-filter-input-wrap">
+            <span class="mon-filter-icon">⌕</span>
+            <input id="mon-filter-input" type="text" placeholder="Filtrar por chave, sigla ou site…"
+              oninput="window._monSetFilter(this.value)" autocomplete="off" spellcheck="false" />
+            <button id="mon-filter-clear" onclick="window._monClearFilter()" title="Limpar">✕</button>
+          </div>
+          <div id="mon-status-chips">
+            <button class="mon-chip mon-chip--all active" onclick="window._monSetStatusFilter('all',this)">Todos</button>
+            <button class="mon-chip mon-chip--completo" onclick="window._monSetStatusFilter('completo',this)">✓ Completo</button>
+            <button class="mon-chip mon-chip--parcial"  onclick="window._monSetStatusFilter('parcial',this)">△ Parcial</button>
+            <button class="mon-chip mon-chip--esc"      onclick="window._monSetStatusFilter('esc',this)">Esc. ok</button>
+            <button class="mon-chip mon-chip--nenhum"   onclick="window._monSetStatusFilter('nenhum',this)">✗ Nenhum</button>
+          </div>
+        </div>
+
         <!-- TABELA -->
         <div id="mon-table-wrap">
           <table id="mon-table">
@@ -1237,11 +1507,11 @@
                 <th style="width:13%">Chave</th>
                 <th style="width:7%">Sigla</th>
                 <th style="width:17%">Site</th>
-                <th class="center" style="width:11%">Esc / Sol</th>
-                <th class="center" style="width:11%">Apt / Sol</th>
-                <th style="width:7%">Hora</th>
+                <th class="center mon-th-sort" data-col="esc" style="width:11%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
+                <th class="center mon-th-sort" data-col="apt" style="width:11%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
+                <th class="mon-th-sort" data-col="hora" style="width:7%"  onclick="window._monToggleSort('hora',this)">Hora <span class="mon-sort-arrow"></span></th>
                 <th style="width:14%">Líder</th>
-                <th class="center" style="width:16%">Status</th>
+                <th class="center mon-th-sort" data-col="status" style="width:16%" onclick="window._monToggleSort('status',this)">Status <span class="mon-sort-arrow"></span></th>
                 <th style="width:4%"></th>
               </tr>
             </thead>
@@ -1344,9 +1614,23 @@
     tbody.innerHTML = '';
     if (operations.length === 0) {
       tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação encontrada</td></tr>`;
+      updateMetrics();
       return;
     }
-    operations.forEach((op, idx) => {
+
+    const visibleOps = getVisibleOps();
+
+    // Atualiza contador no input placeholder
+    const inp = document.getElementById('mon-filter-input');
+    if (inp && !filterText) inp.placeholder = `Filtrar por chave, sigla ou site… (${operations.length} ops)`;
+
+    if (visibleOps.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação corresponde ao filtro</td></tr>`;
+      updateMetrics();
+      return;
+    }
+
+    visibleOps.forEach((op, idx) => {
       const isExp    = expanded.has(op.chave);
       const d        = apontCache[op.id];
       const emJanela = naJanela(op);
@@ -1357,14 +1641,21 @@
       const escCor = colorForPct(escPct);
       const aptCor = colorForAptPct(aptPct);
 
+      // Highlight do texto filtrado
+      const hl = (txt) => {
+        if (!filterText) return txt;
+        const q = filterText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return txt.replace(new RegExp('(' + q + ')', 'gi'), '<mark style="background:rgba(129,140,248,0.3);color:var(--mon-indigo);border-radius:2px">$1</mark>');
+      };
+
       const tr = document.createElement('tr');
       tr.className = 'op-row' + (isExp ? ' is-expanded' : '');
       tr.dataset.chave = op.chave;
 
       tr.innerHTML = `
-        <td><span class="mon-chave" style="color:#a0a0c0" title="${op.chave}">${op.chave}</span></td>
-        <td><span class="mon-sigla">${op.sigla}</span></td>
-        <td><span class="mon-site" title="${op.site}">${op.site}</span></td>
+        <td><span class="mon-chave" style="color:#a0a0c0" title="${op.chave}">${hl(op.chave)}</span></td>
+        <td><span class="mon-sigla">${hl(op.sigla)}</span></td>
+        <td><span class="mon-site" title="${op.site}">${hl(op.site)}</span></td>
         <td>
           ${op.id
             ? (temDados
@@ -1386,7 +1677,7 @@
             : '<span class="mon-prog-na">—</span>'}
         </td>
         <td><span class="mon-hora">${op.hora}</span></td>
-        <td><span class="mon-lider">${op.lider}</span></td>
+        <td><span class="mon-lider">${hl(op.lider)}</span></td>
         <td style="text-align:center">
           ${situacaoBadge(temDados ? d : null, op)}${escalaEnviadaBadge(op)}
         </td>
@@ -1451,8 +1742,10 @@
     `;
 
     const pdfLinks = d.pdfLinks || [], xlsLinks = d.xlsLinks || [];
+    const qtdApt = d.apontado || 0;
     html += `<div class="mon-actions">
-      <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>`;
+      <button class="mon-send-btn" onclick="event.stopPropagation();window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>
+      <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviada</button>`;
     pdfLinks.forEach(l => {
       html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
     });
