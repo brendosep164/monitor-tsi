@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      11.11
+// @version      11.14
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -38,8 +38,17 @@
   let filterText  = "";
   let sortCol     = null;   // 'esc' | 'apt' | 'hora' | 'status'
   let sortDir     = 1;      // 1 = asc, -1 = desc
-  // ops já notificadas — persiste no localStorage (sobrevive refresh e reabrir aba)
-  const NOTIF_KEY = '_monNotificadas';
+  // ops já notificadas — persiste no localStorage com chave por data (limpa automaticamente a cada dia)
+  const _hoje = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  const NOTIF_KEY = '_monNotificadas_' + _hoje;
+  // Limpa chaves de dias anteriores
+  (function() {
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('_monNotificadas_') && k !== NOTIF_KEY) localStorage.removeItem(k);
+      });
+    } catch(e) {}
+  })();
   function notificadasLoad() { try { return new Set((JSON.parse(localStorage.getItem(NOTIF_KEY) || '[]')).map(String)); } catch(e) { return new Set(); } }
   function notificadasSave() { try { localStorage.setItem(NOTIF_KEY, JSON.stringify([...notificadas])); } catch(e) {} }
   let notificadas = notificadasLoad();
@@ -200,9 +209,18 @@
     });
   }
 
+  // Op considerada concluída quando todos os bubbles P1–P11 estão verdes (status 1)
+  // e há pelo menos 11 bubbles preenchidos
+  function isConcluido(op) {
+    const b = op.bubbles || [];
+    if (b.length < 11) return false; // ainda não tem todos os Ps preenchidos
+    return b.every(bubble => bubble.status === 1);
+  }
+
   function notify(op, d) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if ((op.time || '') !== 'VD') return;
+    if (isConcluido(op)) return; // ← não notifica ops já concluídas
     try { new Notification('✅ Operação Completa — TSI', { body: `${op.sigla} | ${op.site}\n${d.apontado}/${d.solicitado} apontados`, icon: AVATAR_URL }); } catch(e) {}
   }
 
@@ -740,11 +758,15 @@
             }
           });
         } else {
-          if (!cached || cached._erro) {
+          // Rebusca se não tem cache, tem erro, ou tem só escala
+          if (!cached || cached._erro || cached._soEscala) {
             enfileirar(op, (novo) => {
               updateCells(op, novo, null);
               cacheSave();
             });
+          } else {
+            // Já tem cache completo: apenas reavalia notificação sem rebuscar
+            updateCells(op, cached, null);
           }
         }
       }, i * 250);
@@ -764,13 +786,25 @@
       if (cells[4]) cells[4].innerHTML = apontBadge(d, op.qtd);
     }
     if (cells[7]) cells[7].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
-    // Notifica apenas uma vez quando bater — somente ops em andamento
+
     const _nid = String(op.id);
-    const _emAndamento = (op.status || '').includes('andamento');
+
+    // Se a op voltou ao estado ativo (não concluída) mas ainda não completou,
+    // remove do set para poder notificar novamente quando completar
+    if (!isConcluido(op) && notificadas.has(_nid)) {
+      const jaCompleta = d && typeof d.apontado === 'number' && typeof d.solicitado === 'number'
+                         && d.solicitado > 0 && d.apontado >= d.solicitado;
+      if (!jaCompleta) {
+        notificadas.delete(_nid);
+        notificadasSave();
+      }
+    }
+
+    // Notifica apenas uma vez quando completar — somente se planejamento ou em andamento (não concluída)
     const _completa = d && d !== 'loading' && !d._erro &&
                       typeof d.apontado === 'number' && typeof d.solicitado === 'number' &&
                       d.solicitado > 0 && d.apontado >= d.solicitado;
-    if (_emAndamento && _completa && !notificadas.has(_nid)) {
+    if (_completa && !isConcluido(op) && !notificadas.has(_nid)) {
       notify(op, d);
       notificadas.add(_nid);
       notificadasSave();
