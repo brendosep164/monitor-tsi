@@ -1301,14 +1301,14 @@
     if (d._soEscala) {
       if (d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
       if (escOk)            return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
-      return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
+      return `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
     }
     if (aptOk && escOk) return '<span class="mon-status-badge completo">✓ Completo</span>';
     if (d.apontado === 0 && d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
     const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
-    if (d.apontado === 0 && listaEnviada) return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
-    if (d.apontado === 0 && escOk)        return `<span class="mon-status-badge esc-ok">Esc ${d.escalado}/${d.solicitado}</span>`;
-    if (d.apontado === 0)                 return `<span class="mon-status-badge nenhum">Esc ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0 && listaEnviada) return escOk ? '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>' : `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0 && escOk)        return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
+    if (d.apontado === 0)                 return `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
     return `<span class="mon-status-badge parcial">△ Apt ${d.apontado}/${d.solicitado}</span>`;
   }
 
