@@ -766,7 +766,6 @@
     const transitou = old && old !== 'loading' && old.apontado < old.solicitado && completa;
     const semHistorico = !old && completa && !jaNotificada;
     if ((transitou || semHistorico) && !jaNotificada) { notify(op, d); notificadas.add(op.id); }
-    if (!completa) notificadas.delete(op.id); // reseta se a op voltar a ser incompleta
   }
 
   // ── DRAG / RESIZE / MINIMIZE ──────────────────────────────────────────────────
