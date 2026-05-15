@@ -125,8 +125,12 @@
     const agoraMin = agora.getHours() * 60 + agora.getMinutes();
     const opMin    = h * 60 + (m || 0);
     let diffMin    = opMin - agoraMin;
-    if (diffMin < -720) diffMin += 1440;
-    return diffMin >= -720 && diffMin <= 180;
+    // Corrige virada de meia-noite apenas para ops futuras (evita que op de ontem
+    // apareça como "daqui a pouco" quando diffMin ficaria positivo grande)
+    if (diffMin > 180) diffMin -= 1440;
+    // Ops passadas: sempre inclui (sem limite inferior)
+    // Ops futuras: apenas até +3h
+    return diffMin <= 180;
   }
 
   function monKey(op) { return op.id || op.chave; }
@@ -715,8 +719,11 @@
           return;
         }
 
-        if (emJanela) {
+        // Se tinha cache só de escala mas agora entrou na janela, invalida e rebusca com apontamentos
+        const eraSoEscala = cached && cached !== 'loading' && cached._soEscala;
+        if (emJanela || eraSoEscala) {
           delete apontCache[op.id];
+          if (emJanela) monitoradas.add(monKey(op));
           enfileirar(op, (novo, old) => {
             updateCells(op, novo, old);
             updateMetrics();
