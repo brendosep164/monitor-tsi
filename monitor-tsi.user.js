@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      14.0
+// @version      13.4
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1519,6 +1519,9 @@
         border: 1px solid var(--mon-accent-border);
         border-radius: var(--mon-radius-xs);
         padding: 2px 7px;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
       }
       .mon-sigla {
         font-weight: 700; font-size: 13px; color: var(--mon-text);
@@ -1909,7 +1912,7 @@
           <table id="mon-table">
             <thead>
               <tr>
-                <th style="width:15%">Chave</th>
+                <th style="width:20%">Chave</th>
                 <th style="width:9%">Sigla</th>
                 <th class="center mon-th-sort" data-col="esc" style="width:13%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
                 <th class="center mon-th-sort" data-col="apt" style="width:13%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
