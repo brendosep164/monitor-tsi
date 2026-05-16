@@ -2718,8 +2718,25 @@
     if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
     const links = d.pdfLinks || [];
     const l = links[idx];
-    if (!l) { alert('Link não encontrado.'); return; }
-    window.open('https://tsi-app.com/' + l.href, '_blank');
+    if (!l) { alert('Link n�o encontrado.'); return; }
+    const op = operations.find(o => o.id === opId);
+    const chave = op ? op.chave : opId;
+    const atualizada = d.listaEnviada === true;
+    const prefixo = atualizada ? 'ESCALA ATUALIZADA' : 'ESCALA';
+    const sufixo = links.length > 1 ? ' [' + String(idx + 1).padStart(2, '0') + ']' : '';
+    const nomeArq = prefixo + ' - ' + chave + sufixo + '.pdf';
+    fetch('https://tsi-app.com/' + l.href, { credentials: 'include' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(blob => {
+        // For�a download como octet-stream para o browser n�o abrir inline
+        const forcedBlob = new Blob([blob], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(forcedBlob);
+        const a = document.createElement('a');
+        a.href = url; a.download = nomeArq;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      })
+      .catch(e => alert('Erro ao baixar PDF: ' + e.message));
   };
 
   // ── MERGE PDF ASSINATURAS (sempre pega do cache atualizado) ──────────────────
@@ -2901,11 +2918,13 @@
       body += 'trailer\n<< /Size ' + nextId + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF\n';
 
       // Download
-      const blob = new Blob([str2buf(body)], { type: 'application/pdf' });
+      const blob = new Blob([str2buf(body)], { type: 'application/octet-stream' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = 'assinaturas_' + (chave || 'merged') + '.pdf';
+      const atualizada = d.listaEnviada === true;
+      const prefixoM = atualizada ? 'ESCALA ATUALIZADA' : 'ESCALA';
+      a.download = prefixoM + ' - ' + (chave || 'merged') + '.pdf';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
