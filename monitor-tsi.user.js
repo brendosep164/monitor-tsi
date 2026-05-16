@@ -154,16 +154,27 @@
     if (!op.hora) return false;
     const [h, m] = op.hora.split(':').map(Number);
     if (isNaN(h)) return false;
+
+    // Extrai data da chave (formato: SIGLA + DDMMAA + resto)
+    // Ex: SRRDHL170520268600 → dia=17, mes=05, ano=2026
+    if (op.chave) {
+      const matchData = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{2})\d+/);
+      if (matchData) {
+        const dia = parseInt(matchData[1]);
+        const mes = parseInt(matchData[2]) - 1;
+        const ano = 2000 + parseInt(matchData[3]);
+        const opDate = new Date(ano, mes, dia, h, m || 0, 0);
+        const diffMin = (opDate - new Date()) / 60000;
+        return diffMin <= 60;
+      }
+    }
+
+    // Fallback: usa só hora do dia
     const agora    = new Date();
     const agoraMin = agora.getHours() * 60 + agora.getMinutes();
     const opMin    = h * 60 + (m || 0);
     let diffMin    = opMin - agoraMin;
-    // Corrige virada de meia-noite: op de ontem que ficou grande positivo
-    // Só aplica se a op estiver muito longe no futuro E for de fato do dia anterior
-    if (diffMin > 720) diffMin -= 1440;   // >12h no futuro → provavelmente é op de ontem
-    if (diffMin < -720) diffMin += 1440;  // muito negativo → op de amanhã (raro)
-    // diffMin <= 60: falta ≤1h OU já passou → mostra Faltando
-    // diffMin >  60: falta mais de 1h       → mostra Escalados
+    if (diffMin < -180) diffMin += 1440;
     return diffMin <= 60;
   }
 
