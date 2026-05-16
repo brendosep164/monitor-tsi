@@ -1177,6 +1177,13 @@
 
     header.addEventListener('mousedown', e => {
       if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+
+      // Se minimizado, qualquer clique no header restaura
+      if (minimized) {
+        window._monMinimize();
+        return;
+      }
+
       e.preventDefault();
 
       // Converte de right-anchored para posição absoluta na primeira arrastada
@@ -1210,7 +1217,80 @@
     });
   }
 
-  window._monMinimize = function() {
+  const MINIM_KEY = '_monMinimized';
+
+  window._monFechar = function() {
+    const panel = document.getElementById('mon-panel');
+    const btn   = document.getElementById('btn-mon');
+    if (panel) panel.style.display = 'none';
+    if (btn) {
+      btn.style.display = '';
+      btn.innerHTML = '<span class="mon-fab-radar"><span class="mon-fab-radar-dot"></span><span class="mon-fab-radar-ring"></span><span class="mon-fab-radar-ring mon-fab-radar-ring2"></span></span> Monitor';
+    }
+    // Limpa persistência de estado ao fechar
+    try { sessionStorage.removeItem(MINIM_KEY); } catch(e) {}
+    minimized = false;
+  };
+
+  let _tickerAnim = null;
+  let _tickerLastText = null;
+
+  function tickerUpdate() {
+    const ticker = document.getElementById('mon-ticker');
+    const wrap   = document.getElementById('mon-ticker-wrap');
+    if (!ticker || !wrap) return;
+
+    // 1) Monta o texto novo
+    const opsJanela = operations.filter(op => dentroJanela(op) && op.id);
+    let novoTexto;
+    if (opsJanela.length === 0) {
+      novoTexto = '— Nenhuma operação na janela —';
+    } else {
+      novoTexto = opsJanela.map(op => {
+        const d = apontCache[op.id];
+        const temDados = d && d !== 'loading';
+        const esc = temDados ? d.escalado : '?';
+        const apt = temDados ? d.apontado : '?';
+        const sol = op.qtd || '?';
+        const status = (temDados && typeof apt === 'number' && typeof sol === 'number' && apt >= sol) ? '✅' : '⏳';
+        return `${status} ${op.chave} | Sol: ${sol} | Esc: ${esc} | Apt: ${apt}`;
+      }).join('     ★     ');
+    }
+
+    // 2) Se o texto não mudou, não reinicia a animação — deixa rolar tranquilo
+    if (novoTexto === _tickerLastText) return;
+    _tickerLastText = novoTexto;
+
+    // 3) Atualiza o texto e para animação atual
+    ticker.textContent = novoTexto;
+    ticker.style.animation = 'none';
+
+    // 4) Duplo rAF: garante que o browser renderizou o novo texto antes de medir scrollWidth
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const wrapW = wrap.offsetWidth;
+        const textW = ticker.scrollWidth;
+        if (wrapW <= 0 || textW <= 0) return;
+
+        const duration = (wrapW + textW) / 80;
+
+        let styleEl = document.getElementById('mon-ticker-keyframes');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'mon-ticker-keyframes';
+          document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = `@keyframes mon-ticker-scroll {
+          from { transform: translateX(${wrapW}px); }
+          to   { transform: translateX(-${textW}px); }
+        }`;
+
+        ticker.style.animation = `mon-ticker-scroll ${duration}s linear infinite`;
+      });
+    });
+  }
+
+    window._monMinimize = function() {
     const body  = document.getElementById('mon-body');
     const btn   = document.getElementById('mon-min-btn');
     const panel = document.getElementById('mon-panel');
@@ -1218,15 +1298,61 @@
     minimized = !minimized;
     if (minimized) {
       _savedPanelHeight = panel.style.height || '';
-      body.style.display  = 'none';
-      panel.style.height  = 'auto';
+      const savedTop   = panel.style.top;
+      const savedLeft  = panel.style.left;
+      const savedRight = panel.style.right;
+      body.style.display   = 'none';
+      panel.style.height   = 'auto';
       panel.style.overflow = 'visible';
+      // Ancora no canto inferior direito ao minimizar
+      panel.style.top    = 'auto';
+      panel.style.bottom = '0';
+      panel.style.right  = savedRight !== 'auto' ? (savedRight || '0') : 'auto';
+      panel.style.left   = savedRight === 'auto' ? savedLeft : 'auto';
+      panel.dataset.savedTop   = savedTop;
+      panel.dataset.savedLeft  = savedLeft;
+      panel.dataset.savedRight = savedRight;
       btn.innerHTML = '&#9633;';
+      // Clique em qualquer lugar do header restaura quando minimizado
+      panel.dataset.minimized = '1';
+      try { sessionStorage.setItem(MINIM_KEY, '1'); } catch(e) {}
+      // Esconde o botão flutuante
+      const fabBtn = document.getElementById('btn-mon');
+      if (fabBtn) fabBtn.style.display = 'none';
+      // Mostra e atualiza ticker
+      const tickerWrap = document.getElementById('mon-ticker-wrap');
+      if (tickerWrap) tickerWrap.style.display = 'flex';
+      tickerUpdate();
     } else {
-      body.style.display  = '';
-      panel.style.height  = _savedPanelHeight || '100vh';
-      panel.style.overflow = 'hidden';
+      body.style.display    = 'flex';
+      body.style.flexDirection = 'column';
+      panel.style.height    = _savedPanelHeight || '100vh';
+      panel.style.overflow  = 'hidden';
+      panel.style.display   = 'flex';
+      panel.style.flexDirection = 'column';
+      // Restaura posição original
+      panel.style.bottom = '';
+      panel.style.top    = panel.dataset.savedTop   || '0';
+      panel.style.left   = panel.dataset.savedLeft  || 'auto';
+      panel.style.right  = panel.dataset.savedRight || '0';
       btn.innerHTML = '&#8212;';
+      panel.dataset.minimized = '';
+      try { sessionStorage.removeItem(MINIM_KEY); } catch(e) {}
+      // Mostra o botão flutuante novamente
+      const fabBtn = document.getElementById('btn-mon');
+      if (fabBtn) fabBtn.style.display = '';
+      // Esconde ticker
+      const tickerWrap = document.getElementById('mon-ticker-wrap');
+      if (tickerWrap) tickerWrap.style.display = 'none';
+      if (_tickerAnim) { cancelAnimationFrame(_tickerAnim); _tickerAnim = null; }
+      const tickerEl = document.getElementById('mon-ticker');
+      if (tickerEl) tickerEl.style.animation = 'none';
+      _tickerLastText = null; // reseta para forçar reinício ao minimizar de novo
+      // Força reflow para a scrollbar reaparecer corretamente
+      requestAnimationFrame(() => {
+        const wrap = document.getElementById('mon-table-wrap');
+        if (wrap) { wrap.style.overflowY = 'hidden'; requestAnimationFrame(() => { wrap.style.overflowY = 'auto'; }); }
+      });
     }
   };
 
@@ -1318,6 +1444,18 @@
         from { opacity: 0; transform: translateX(20px); }
         to   { opacity: 1; transform: translateX(0); }
       }
+      #mon-ticker-wrap {
+        mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+      }
+      #mon-ticker {
+        font-family: 'Courier New', Courier, monospace !important;
+        font-weight: 700 !important;
+        font-size: 13px !important;
+        letter-spacing: 0.5px;
+        color: #1b2333 !important;
+        text-shadow: none;
+      }
 
       /* ── BOTÃO FLUTUANTE ── */
       #btn-mon {
@@ -1391,7 +1529,7 @@
         min-height: 40px;
       }
       #mon-panel ::-webkit-scrollbar-thumb:hover { background: var(--mon-text-faint); }
-      #mon-table-wrap { scrollbar-gutter: stable; }
+      #mon-table-wrap { scrollbar-gutter: stable; min-height: 0; }
 
       /* ── HEADER ── */
       #mon-header {
@@ -1399,7 +1537,7 @@
         border-bottom: 1px solid var(--mon-border);
         padding: 0 16px;
         height: 56px;
-        display: flex; align-items: center; justify-content: space-between;
+        display: flex; align-items: center; justify-content: flex-start;
         flex-shrink: 0; user-select: none; cursor: grab;
         gap: 12px;
       }
@@ -1570,7 +1708,7 @@
       .mon-chip--nenhum.active   { background: var(--mon-red-bg); border-color: var(--mon-red-border); color: var(--mon-red); }
 
       /* ── TABELA ── */
-      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); }
+      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); min-height: 0; }
       #mon-table {
         width: 100%; border-collapse: collapse; font-size: 12.5px;
         table-layout: fixed;
@@ -1950,7 +2088,11 @@
             </div>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:7px;flex-wrap:nowrap">
+        <!-- TICKER — visível só quando minimizado, ocupa espaço central -->
+        <div id="mon-ticker-wrap" style="display:none;flex:1;min-width:0;overflow:hidden;margin:0 12px;align-items:center;position:relative;height:20px;">
+          <div id="mon-ticker" style="white-space:nowrap;display:inline-block;position:absolute;top:0;left:0;will-change:transform;">—</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:nowrap;flex-shrink:0;margin-left:auto">
           <span id="mon-live" class="mon-status-pill" data-state="offline">
             <span class="mon-status-dot"></span>
             <span>Offline</span>
@@ -1971,12 +2113,12 @@
             </svg>
           </div>
           <button class="mon-icon-btn" id="mon-min-btn" onclick="window._monMinimize()" title="Minimizar">&#8212;</button>
-          <button class="mon-icon-btn" onclick="document.getElementById('mon-panel').style.display='none';document.getElementById('btn-mon').innerHTML='<span class=mon-fab-radar><span class=mon-fab-radar-dot></span><span class=mon-fab-radar-ring></span><span class=\"mon-fab-radar-ring mon-fab-radar-ring2\"></span></span> Monitor'" title="Fechar">&#10005;</button>
+          <button class="mon-icon-btn" onclick="window._monFechar()" title="Fechar">&#10005;</button>
         </div>
       </div>
 
       <!-- BODY -->
-      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
         <!-- MÉTRICAS -->
         <div id="mon-metrics">
           <div class="mon-metric">
@@ -2128,6 +2270,8 @@
     s('m-ok',    ok);
     s('m-inc',   inc);
     s('m-zero',  zero);
+    // Atualiza ticker se estiver minimizado
+    if (minimized) tickerUpdate();
   }
 
   function setLive(state, label) {
@@ -2728,6 +2872,17 @@
     if (!window._monRunning) startMonitor();
     watchPageNavigation();
     if (Notification.permission === 'default') pedirPermissaoNotificacao();
+    // Restaura estado minimizado se estava assim antes do reload
+    try {
+      if (sessionStorage.getItem(MINIM_KEY) === '1') {
+        const panel = document.getElementById('mon-panel');
+        if (panel) {
+          panel.style.display = 'flex';
+          panel.style.flexDirection = 'column';
+        }
+        window._monMinimize(); // entra no estado minimizado
+      }
+    } catch(e) {}
   }, 2000);
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -3030,7 +3185,6 @@
 
       // xref table
       const xrefOffset = body.length;
-      const allIds = [0, ...offsets.keys()].sort((a, b) => a - b);
       body += 'xref\n0 ' + (nextId) + '\n';
       body += '0000000000 65535 f \n';
       for (let id = 1; id < nextId; id++) {
