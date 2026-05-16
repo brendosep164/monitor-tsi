@@ -158,11 +158,11 @@
     // Extrai data da chave (formato: SIGLA + DDMMAA + resto)
     // Ex: SRRDHL170520268600 → dia=17, mes=05, ano=2026
     if (op.chave) {
-      const matchData = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{2})\d+/);
+      const matchData = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
       if (matchData) {
         const dia = parseInt(matchData[1]);
         const mes = parseInt(matchData[2]) - 1;
-        const ano = 2000 + parseInt(matchData[3]);
+        const ano = parseInt(matchData[3]);
         const opDate = new Date(ano, mes, dia, h, m || 0, 0);
         const diffMin = (opDate - new Date()) / 60000;
         return diffMin <= 60;
