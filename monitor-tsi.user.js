@@ -1236,7 +1236,7 @@
         const wrap = document.getElementById('mon-table-wrap');
         if (wrap) { wrap.style.overflowY = 'auto'; }
         const mbody = document.getElementById('mon-body');
-        if (mbody) { mbody.style.overflow = 'hidden'; mbody.style.flex = '1'; }
+        if (mbody) { mbody.style.overflow = 'hidden'; mbody.style.flex = '1'; mbody.style.minHeight = '0'; }
       });
     }
   };
@@ -1581,7 +1581,7 @@
       .mon-chip--nenhum.active   { background: var(--mon-red-bg); border-color: var(--mon-red-border); color: var(--mon-red); }
 
       /* ── TABELA ── */
-      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); }
+      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); min-height: 0; padding-bottom: 72px; }
       #mon-table {
         width: 100%; border-collapse: collapse; font-size: 12.5px;
         table-layout: fixed;
@@ -1935,7 +1935,7 @@
     const p = document.createElement('div');
     p.id = 'mon-panel';
     p.style.cssText = `
-      position:fixed;top:0;right:0;width:1000px;height:100vh;
+      position:fixed;top:0;right:0;width:100vw;height:100vh;
       z-index:99998;display:none;flex-direction:column;overflow:hidden;
     `;
 
@@ -1987,7 +1987,7 @@
       </div>
 
       <!-- BODY -->
-      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
         <!-- MÉTRICAS -->
         <div id="mon-metrics">
           <div class="mon-metric">
@@ -2491,7 +2491,12 @@
     const RADAR_HTML = '<span class="mon-fab-radar"><span class="mon-fab-radar-dot"></span><span class="mon-fab-radar-ring"></span><span class="mon-fab-radar-ring mon-fab-radar-ring2"></span></span> Monitor';
     if (p.style.display === 'none' || !p.style.display) {
       p.style.display = 'flex'; p.style.flexDirection = 'column';
+      p.style.height = '100vh'; p.style.top = '0'; p.style.bottom = 'auto';
       btn.innerHTML = RADAR_HTML;
+      requestAnimationFrame(() => {
+        const wrap = document.getElementById('mon-table-wrap');
+        if (wrap) wrap.style.overflowY = 'auto';
+      });
     } else {
       p.style.display = 'none';
       btn.innerHTML = RADAR_HTML;
