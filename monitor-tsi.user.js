@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      22.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1218,26 +1218,15 @@
     minimized = !minimized;
     if (minimized) {
       _savedPanelHeight = panel.style.height || '';
-      panel._savedTop = panel.style.top || '0px';
-      body.style.display   = 'none';
-      panel.style.height   = 'auto';
+      body.style.display  = 'none';
+      panel.style.height  = 'auto';
       panel.style.overflow = 'visible';
-      panel.style.top      = 'auto';
-      panel.style.bottom   = '0px';
       btn.innerHTML = '&#9633;';
     } else {
-      body.style.display   = '';
-      panel.style.height   = _savedPanelHeight || '100vh';
+      body.style.display  = '';
+      panel.style.height  = _savedPanelHeight || '100vh';
       panel.style.overflow = 'hidden';
-      panel.style.bottom   = 'auto';
-      panel.style.top      = panel._savedTop || '0px';
       btn.innerHTML = '&#8212;';
-      requestAnimationFrame(() => {
-        const wrap = document.getElementById('mon-table-wrap');
-        if (wrap) { wrap.style.overflowY = 'auto'; }
-        const mbody = document.getElementById('mon-body');
-        if (mbody) { mbody.style.overflow = 'hidden'; mbody.style.flex = '1'; mbody.style.minHeight = '0'; }
-      });
     }
   };
 
@@ -1581,7 +1570,7 @@
       .mon-chip--nenhum.active   { background: var(--mon-red-bg); border-color: var(--mon-red-border); color: var(--mon-red); }
 
       /* ── TABELA ── */
-      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); min-height: 0; padding-bottom: 72px; }
+      #mon-table-wrap { flex: 1; overflow-y: auto; background: var(--mon-bg); }
       #mon-table {
         width: 100%; border-collapse: collapse; font-size: 12.5px;
         table-layout: fixed;
@@ -1935,7 +1924,7 @@
     const p = document.createElement('div');
     p.id = 'mon-panel';
     p.style.cssText = `
-      position:fixed;top:0;right:0;width:100vw;height:100vh;
+      position:fixed;top:0;right:0;width:1000px;height:100vh;
       z-index:99998;display:none;flex-direction:column;overflow:hidden;
     `;
 
@@ -1987,7 +1976,7 @@
       </div>
 
       <!-- BODY -->
-      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+      <div id="mon-body" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
         <!-- MÉTRICAS -->
         <div id="mon-metrics">
           <div class="mon-metric">
@@ -2491,12 +2480,7 @@
     const RADAR_HTML = '<span class="mon-fab-radar"><span class="mon-fab-radar-dot"></span><span class="mon-fab-radar-ring"></span><span class="mon-fab-radar-ring mon-fab-radar-ring2"></span></span> Monitor';
     if (p.style.display === 'none' || !p.style.display) {
       p.style.display = 'flex'; p.style.flexDirection = 'column';
-      p.style.height = '100vh'; p.style.top = '0'; p.style.bottom = 'auto';
       btn.innerHTML = RADAR_HTML;
-      requestAnimationFrame(() => {
-        const wrap = document.getElementById('mon-table-wrap');
-        if (wrap) wrap.style.overflowY = 'auto';
-      });
     } else {
       p.style.display = 'none';
       btn.innerHTML = RADAR_HTML;
