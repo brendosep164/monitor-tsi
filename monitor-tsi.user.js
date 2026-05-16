@@ -1632,26 +1632,7 @@
         color: var(--mon-accent); background: var(--mon-accent-bg);
         border: 1px solid var(--mon-accent-border); border-radius: var(--mon-radius-xs);
         padding: 3px 9px; letter-spacing: -0.2px; font-weight: 600;
-        position: relative;
       }
-      .mon-key-chip::after {
-        content: 'Copiar chave';
-        position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
-        background: var(--mon-surface2); color: var(--mon-text);
-        border: 1px solid var(--mon-border2);
-        font-family: var(--mon-font); font-size: 11px; font-weight: 500;
-        white-space: nowrap; padding: 4px 9px; border-radius: var(--mon-radius-xs);
-        pointer-events: none; opacity: 0; transition: opacity 0.15s;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-        letter-spacing: 0; z-index: 999999;
-      }
-      .mon-key-chip::before {
-        content: '';
-        position: absolute; bottom: calc(100% + 1px); left: 50%; transform: translateX(-50%);
-        border: 5px solid transparent; border-top-color: var(--mon-border2);
-        pointer-events: none; opacity: 0; transition: opacity 0.15s;
-      }
-      .mon-key-chip:hover::after, .mon-key-chip:hover::before { opacity: 1; }
       .mon-copy-btn {
         background: transparent; border: 1px solid var(--mon-border);
         color: var(--mon-text-dim); padding: 4px 10px;
