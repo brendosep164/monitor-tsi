@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      22.0
+// @version      23.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -54,6 +54,19 @@
   function notificadasLoad() { try { return new Set((JSON.parse(localStorage.getItem(NOTIF_KEY) || '[]')).map(String)); } catch(e) { return new Set(); } }
   function notificadasSave() { try { localStorage.setItem(NOTIF_KEY, JSON.stringify([...notificadas])); } catch(e) {} }
   let notificadas = notificadasLoad();
+
+  // ── NOTIFICAÇÕES DE ESCALA COMPLETA ─────────────────────────────────────────
+  const NOTIF_ESC_KEY = '_monNotifEscala_' + _hoje;
+  (function() {
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('_monNotifEscala_') && k !== NOTIF_ESC_KEY) localStorage.removeItem(k);
+      });
+    } catch(e) {}
+  })();
+  function notifEscLoad() { try { return new Set(JSON.parse(localStorage.getItem(NOTIF_ESC_KEY) || '[]').map(String)); } catch(e) { return new Set(); } }
+  function notifEscSave() { try { localStorage.setItem(NOTIF_ESC_KEY, JSON.stringify([...notifEscala])); } catch(e) {} }
+  let notifEscala = notifEscLoad();
 
   // ── CACHE PERSISTENTE (sessionStorage) ──────────────────────────────────────
   const CACHE_KEY = '_monCache_v2';
@@ -262,6 +275,16 @@
     if ((op.time || '') !== 'VD') return;
     if (isConcluido(op)) return; // ← não notifica ops já concluídas
     try { new Notification('✅ Operação Completa — TSI', { body: `${op.sigla} | ${op.site}\n${d.apontado}/${d.solicitado} apontados`, icon: AVATAR_URL }); } catch(e) {}
+  }
+
+  function notifyEscala(op, d) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      new Notification('📋 Escala Completa — TSI', {
+        body: `${op.sigla} | ${op.site}\n${d.escalado}/${op.qtd} escalados`,
+        icon: AVATAR_URL
+      });
+    } catch(e) {}
   }
 
   window._monPedirNotif = pedirPermissaoNotificacao;
@@ -1114,7 +1137,7 @@
       }
     }
 
-    // Notifica apenas uma vez quando completar — somente se planejamento ou em andamento (não concluída)
+    // Notifica quando apontamentos completarem
     const _completa = d && d !== 'loading' && !d._erro &&
                       typeof d.apontado === 'number' && typeof d.solicitado === 'number' &&
                       d.solicitado > 0 && d.apontado >= d.solicitado;
@@ -1122,6 +1145,22 @@
       notify(op, d);
       notificadas.add(_nid);
       notificadasSave();
+    }
+
+    // Notifica quando escala completar (escalado >= solicitado)
+    const _escCompleta = d && d !== 'loading' && !d._erro &&
+                         typeof d.escalado === 'number' && op.qtd > 0 &&
+                         d.escalado >= op.qtd;
+    const _nidEsc = 'esc_' + String(op.id);
+    if (_escCompleta && !notifEscala.has(_nidEsc)) {
+      notifyEscala(op, d);
+      notifEscala.add(_nidEsc);
+      notifEscSave();
+    }
+    // Se escala regrediu (alguém removido), permite notificar novamente
+    if (!_escCompleta && notifEscala.has(_nidEsc)) {
+      notifEscala.delete(_nidEsc);
+      notifEscSave();
     }
   }
 
