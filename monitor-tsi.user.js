@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      21.0
+// @version      22.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -147,6 +147,24 @@
     // Ops passadas: sempre inclui (sem limite inferior)
     // Ops futuras: apenas até +3h
     return diffMin <= 180;
+  }
+
+  // Retorna true quando falta menos de 1h para a operação (ou já passou)
+  function dentroJanela1h(op) {
+    if (!op.hora) return false;
+    const [h, m] = op.hora.split(':').map(Number);
+    if (isNaN(h)) return false;
+    const agora    = new Date();
+    const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+    const opMin    = h * 60 + (m || 0);
+    let diffMin    = opMin - agoraMin;
+    // Corrige virada de meia-noite: op de ontem que ficou grande positivo
+    // Só aplica se a op estiver muito longe no futuro E for de fato do dia anterior
+    if (diffMin > 720) diffMin -= 1440;   // >12h no futuro → provavelmente é op de ontem
+    if (diffMin < -720) diffMin += 1440;  // muito negativo → op de amanhã (raro)
+    // diffMin <= 60: falta ≤1h OU já passou → mostra Faltando
+    // diffMin >  60: falta mais de 1h       → mostra Escalados
+    return diffMin <= 60;
   }
 
   function monKey(op) { return op.id || op.chave; }
@@ -2183,10 +2201,11 @@
 
     let html = `
       <div class="mon-detail-header">
-        <span class="mon-key-chip" style="cursor:pointer;user-select:none;"
-          onmouseenter="(function(el){var t=document.createElement('div');t.id='_monTip';t.textContent='Clique para copiar a chave';t.style.cssText='position:fixed;background:#1e1b4b;color:#fff;font-size:11px;padding:4px 10px;border-radius:6px;pointer-events:none;z-index:999999;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);';var r=el.getBoundingClientRect();t.style.top=(r.top-30)+'px';t.style.left=(r.left+r.width/2)+'px';t.style.transform='translateX(-50%)';document.body.appendChild(t);})(this)"
-          onmouseleave="(function(){var t=document.getElementById('_monTip');if(t)t.remove();})()"
-          onclick="event.stopPropagation();(function(el){var t=document.getElementById('_monTip');if(t)t.remove();navigator.clipboard.writeText('${chaveEsc}').then(()=>{const orig=el.textContent;el.textContent='Copiado!';el.style.background='var(--mon-green)';el.style.color='#fff';el.style.borderColor='var(--mon-green)';setTimeout(()=>{el.textContent=orig;el.style.background='';el.style.color='';el.style.borderColor='';},1600)}).catch(()=>{const orig=el.textContent;el.textContent='Erro';setTimeout(()=>{el.textContent=orig;},1600)})})(this)">${op.chave}</span>
+        <span class="mon-key-chip">${op.chave}</span>
+        <button class="mon-copy-btn"
+          onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ Copiado';btn.style.color='var(--mon-green)';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ Erro';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)})})(this)">
+          ⎘ Copiar chave
+        </button>
         <button class="mon-copy-btn mon-open-btn" onclick="event.stopPropagation();var el=window._monLinkEls&&window._monLinkEls['${op.id}'];if(el){loadiframe('planejamento-operacional-edit${op.id}_3','Editar Planejamento',570,'modal1500');if(window.$)$('#modal1500').modal('show');}">🔎 Abrir OP</button>
       </div>
 
@@ -2280,36 +2299,68 @@
       }
       html += `</div></div>`;
 
-      // ── FALTANDO (direita) ──
-      html += `
-        <div class="mon-list-panel mon-list-panel--warn">
-          <div class="mon-list-panel-header">
-            <span class="mon-list-panel-dot" style="background:var(--mon-red)"></span>
-            <span class="mon-list-panel-title">Faltando</span>
-            <span class="mon-list-panel-count" style="background:var(--mon-red-bg);color:var(--mon-red)">${faltando.length}</span>
-            ${(d.faltasConfirmadas||[]).length > 0 ? '<span onclick="event.stopPropagation();var b=document.getElementById(\'fc-'+op.id+'\');var a=this.querySelector(\'.fc-arr\');if(b.style.display===\'none\'){b.style.display=\'block\';a.style.transform=\'rotate(180deg)\';}else{b.style.display=\'none\';a.style.transform=\'\';}" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;margin-left:auto;background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;color:var(--mon-red)">⚠ Faltas ('+((d.faltasConfirmadas||[]).length)+')<span class="fc-arr" style="transition:transform 0.2s;font-size:9px">▼</span></span>' : ''}
-          </div>
-          <div id="fc-${op.id}" style="display:none;padding:6px 10px;border-bottom:1px solid var(--mon-border)">
-            ${(d.faltasConfirmadas||[]).map(c => '<div class="mon-list-row" style="background:var(--mon-red-bg);border-radius:6px;margin-bottom:3px;border:none"><div class="mon-list-row-name" style="color:var(--mon-red)">'+c.nome+'</div><div class="mon-list-row-meta"><span class="mon-list-row-tipo">'+(c.tipo||'—')+'</span>'+(c.inicio ? '<span class="mon-list-row-tipo">🕐 '+c.inicio+'</span>' : '')+'</div></div>').join('')}
-          </div>
-          <div class="mon-list-panel-body">`;
-      if (faltando.length === 0) {
-        html += `<div class="mon-list-empty" style="color:var(--mon-green)">✓ Todos apontados</div>`;
+      // ── FALTANDO ou ESCALADOS (direita) ──
+      // Regra: antes de 1h da operação → mostra lista de Escalados
+      //        dentro de 1h (ou depois) → mostra Faltando
+      const mostrarFaltando = dentroJanela1h(op);
+      if (mostrarFaltando) {
+        // ── modo FALTANDO ──
+        html += `
+          <div class="mon-list-panel mon-list-panel--warn">
+            <div class="mon-list-panel-header">
+              <span class="mon-list-panel-dot" style="background:var(--mon-red)"></span>
+              <span class="mon-list-panel-title">Faltando</span>
+              <span class="mon-list-panel-count" style="background:var(--mon-red-bg);color:var(--mon-red)">${faltando.length}</span>
+              ${(d.faltasConfirmadas||[]).length > 0 ? '<span onclick="event.stopPropagation();var b=document.getElementById(\'fc-'+op.id+'\');var a=this.querySelector(\'.fc-arr\');if(b.style.display===\'none\'){b.style.display=\'block\';a.style.transform=\'rotate(180deg)\';}else{b.style.display=\'none\';a.style.transform=\'\';}" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;margin-left:auto;background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;color:var(--mon-red)">⚠ Faltas ('+((d.faltasConfirmadas||[]).length)+')<span class="fc-arr" style="transition:transform 0.2s;font-size:9px">▼</span></span>' : ''}
+            </div>
+            <div id="fc-${op.id}" style="display:none;padding:6px 10px;border-bottom:1px solid var(--mon-border)">
+              ${(d.faltasConfirmadas||[]).map(c => '<div class="mon-list-row" style="background:var(--mon-red-bg);border-radius:6px;margin-bottom:3px;border:none"><div class="mon-list-row-name" style="color:var(--mon-red)">'+c.nome+'</div><div class="mon-list-row-meta"><span class="mon-list-row-tipo">'+(c.tipo||'—')+'</span>'+(c.inicio ? '<span class="mon-list-row-tipo">🕐 '+c.inicio+'</span>' : '')+'</div></div>').join('')}
+            </div>
+            <div class="mon-list-panel-body">`;
+        if (faltando.length === 0) {
+          html += `<div class="mon-list-empty" style="color:var(--mon-green)">✓ Todos apontados</div>`;
+        } else {
+          faltando.forEach(c => {
+            html += `
+              <div class="mon-list-row">
+                <div class="mon-list-row-name" style="color:var(--mon-red)">${c.nome}</div>
+                <div class="mon-list-row-meta">
+                  <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+                  ${c.advisor ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">👤 ${c.advisor}</span>` : ''}
+                  ${c.datacad ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">🕐 ${c.datacad}</span>` : ''}
+                </div>
+              </div>`;
+          });
+        }
+        html += `</div></div>`;
       } else {
-        faltando.forEach(c => {
-          html += `
-            <div class="mon-list-row">
-              <div class="mon-list-row-name" style="color:var(--mon-red)">${c.nome}</div>
-              <div class="mon-list-row-meta">
-                <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
-                ${c.advisor ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">👤 ${c.advisor}</span>` : ''}
-                ${c.datacad ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">🕐 ${c.datacad}</span>` : ''}
-              </div>
-            </div>`;
-        });
-
+        // ── modo ESCALADOS (falta mais de 1h) ──
+        const escalados = d.escalados || [];
+        html += `
+          <div class="mon-list-panel mon-list-panel--ok">
+            <div class="mon-list-panel-header">
+              <span class="mon-list-panel-dot" style="background:var(--mon-accent)"></span>
+              <span class="mon-list-panel-title">Escalados</span>
+              <span class="mon-list-panel-count" style="background:var(--mon-accent-bg);color:var(--mon-accent)">${escalados.length}</span>
+            </div>
+            <div class="mon-list-panel-body">`;
+        if (escalados.length === 0) {
+          html += `<div class="mon-list-empty">Nenhum escalado</div>`;
+        } else {
+          escalados.forEach(c => {
+            html += `
+              <div class="mon-list-row">
+                <div class="mon-list-row-name">${c.nome}</div>
+                <div class="mon-list-row-meta">
+                  <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+                  ${c.advisor ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">👤 ${c.advisor}</span>` : ''}
+                  ${c.datacad ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-secondary)">🕐 ${c.datacad}</span>` : ''}
+                </div>
+              </div>`;
+          });
+        }
+        html += `</div></div>`;
       }
-      html += `</div></div>`;
 
       html += `</div>`;
     }
@@ -2717,7 +2768,7 @@
     if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
     const links = d.pdfLinks || [];
     const l = links[idx];
-    if (!l) { alert('Link n�o encontrado.'); return; }
+    if (!l) { alert('Link n o encontrado.'); return; }
     const op = operations.find(o => o.id === opId);
     const chave = op ? op.chave : opId;
     const atualizada = d.listaEnviada === true;
@@ -2727,7 +2778,7 @@
     fetch('https://tsi-app.com/' + l.href, { credentials: 'include' })
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
       .then(blob => {
-        // For�a download como octet-stream para o browser n�o abrir inline
+        // For a download como octet-stream para o browser n o abrir inline
         const forcedBlob = new Blob([blob], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(forcedBlob);
         const a = document.createElement('a');
