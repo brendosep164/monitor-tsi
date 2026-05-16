@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      19.0
+// @version      20.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -643,8 +643,13 @@
       return op.liderCompleto || op.lider || '—';
     });
 
+    const reportAtualizado = d.todosConfirmados === true;
+    const tituloReport = reportAtualizado
+      ? `*💚 REPORT ATUALIZADO - TIME VERDE 💚*`
+      : `*💚 REPORT - TIME VERDE 💚*`;
+
     const texto = [
-      `*💚 REPORT - TIME VERDE 💚*`,
+      tituloReport,
       ``,
       `📅 ${dia}/${mes}/${ano}`,
       ``,
@@ -971,6 +976,7 @@
   // ── ATUALIZAÇÃO MANUAL ────────────────────────────────────────────────────────
   function manualRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
+    monCarregarContatos();
     iframesInUse = {};
     fetchQueue   = [];
     inQueue      = new Set();
@@ -1769,6 +1775,26 @@
 
       .mon-empty-detail { color: var(--mon-text-faint); font-size: 12px; padding: 8px 0; }
 
+      /* ── BOTÕES ESCALA WA / GMAIL ── */
+      #mon-panel .mon-send-btn--wa-escala {
+        background: var(--mon-green-bg) !important;
+        color: var(--mon-green) !important;
+        border-color: var(--mon-green-border) !important;
+      }
+      #mon-panel .mon-send-btn--wa-escala:hover {
+        background: var(--mon-green) !important;
+        color: #fff !important;
+      }
+      #mon-panel .mon-send-btn--gmail {
+        background: var(--mon-blue-bg) !important;
+        color: var(--mon-blue) !important;
+        border-color: rgba(29,78,216,0.25) !important;
+      }
+      #mon-panel .mon-send-btn--gmail:hover {
+        background: var(--mon-blue) !important;
+        color: #fff !important;
+      }
+
       /* ── PROGRESS AVATAR ── */
       .mon-avatar-wrap {
         position: relative; width: 44px; height: 44px; flex-shrink: 0;
@@ -2142,11 +2168,14 @@
 
     const pdfLinks = d.pdfLinks || [], xlsLinks = d.xlsLinks || [];
     const qtdApt = d.apontado || 0;
+    const temEscala = d.escalado > 0;
+    const escalaAtualizada = d.listaEnviada === true;
     html += `<div class="mon-actions">
       <button class="mon-send-btn" onclick="event.stopPropagation();if(confirm('Confirmar envio de escala?'))window._monEnviarEscala('${op.id}',this)">✓ Escala enviada</button>
       <button class="mon-send-btn mon-send-btn--report" onclick="event.stopPropagation();if(confirm('Confirmar envio de report?'))window._monEnviarReport('${op.id}',this)" title="Preenche P1–P11 e coloca ${qtdApt} apontamentos no P10">📋 Report enviado</button>
       <button class="mon-send-btn mon-send-btn--print" onclick="event.stopPropagation();window._monPrintApontamentos('${op.id}',this)">🖨️ Print apontamentos</button>
-      <button class="mon-send-btn mon-send-btn--relatorio" onclick="event.stopPropagation();window._monGerarRelatorio('${op.id}',this)">📲 Relatório WhatsApp</button>`;
+      <button class="mon-send-btn mon-send-btn--relatorio" onclick="event.stopPropagation();window._monGerarRelatorio('${op.id}',this)">📲 ${escalaAtualizada && d.todosConfirmados ? 'Report WhatsApp (atualizado)' : 'Report WhatsApp'}</button>
+      ${temEscala ? `<button class="mon-send-btn mon-send-btn--wa-escala" onclick="event.stopPropagation();window._monGerarMsgEscala('${op.id}',this)">💬 ${escalaAtualizada ? 'Msg escala (atualizada)' : 'Msg escala WA'}</button><button class="mon-send-btn mon-send-btn--gmail" onclick="event.stopPropagation();window._monAbrirGmailEscala('${op.id}',this)" onmouseenter="(function(btn){var emails=window._monEmailsDaOpById&&window._monEmailsDaOpById('${op.id}');btn.title=emails&&emails.length?'Para: '+emails.join(', '):'⚠ Nenhum destinatário cadastrado';})(this)">${'<svg width="14" height="11" viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:4px"><path d="M0 3.6L12 11.4L24 3.6V16.8C24 17.46 23.46 18 22.8 18H1.2C0.54 18 0 17.46 0 16.8V3.6Z" fill="#EA4335"/><path d="M0 3.6L12 11.4L24 3.6" fill="#FBBC05"/><path d="M0 1.2C0 0.54 0.54 0 1.2 0H22.8C23.46 0 24 0.54 24 1.2V3.6L12 11.4L0 3.6V1.2Z" fill="#4285F4"/><path d="M0 3.6V1.2C0 0.54 0.54 0 1.2 0L12 7.8L0 3.6Z" fill="#34A853"/><path d="M24 3.6V1.2C24 0.54 23.46 0 22.8 0L12 7.8L24 3.6Z" fill="#EA4335"/></svg>'} ${escalaAtualizada ? 'Gmail (atualizado)' : 'Gmail escala'}</button>` : ''}`;
     pdfLinks.forEach(l => {
       html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
     });
@@ -2277,6 +2306,7 @@
 
   function startMonitor() {
     window._monRunning = true;
+    monCarregarContatos();
     fetchOperations();
     refreshTimer  = setInterval(silentRefresh, 60 * 1000);
     startWatchdog();
@@ -2450,5 +2480,153 @@
     watchPageNavigation();
     if (Notification.permission === 'default') pedirPermissaoNotificacao();
   }, 2000);
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // ADDON v20: MENSAGEM DE ESCALA (WA) + GMAIL DE ESCALA
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // ── CONTATOS (JSONBin — mesmo backend do Gerador) ────────────────────────────
+  const _MON_BIN_ID  = '69dd9cfa36566621a8ae40e1';
+  const _MON_BIN_KEY = '$2a$10$re7SEj86dL3mQnxKBMLFvu7f566NmQucI1RwyW5t9tfYCrCQUExt.';
+  const _MON_BIN_URL = 'https://api.jsonbin.io/v3/b/' + _MON_BIN_ID;
+  let _monContatos = null;
+
+  function monCarregarContatos() {
+    try {
+      const local = localStorage.getItem('tsi_contatos');
+      if (local) _monContatos = JSON.parse(local);
+    } catch(e) {}
+    fetch(_MON_BIN_URL + '/latest', { headers: { 'X-Master-Key': _MON_BIN_KEY } })
+      .then(r => r.json())
+      .then(j => {
+        if (j.record && j.record.contatos && Object.keys(j.record.contatos).length > 0) {
+          _monContatos = j.record.contatos;
+          try { localStorage.setItem('tsi_contatos', JSON.stringify(_monContatos)); } catch(e) {}
+        }
+      })
+      .catch(() => {});
+  }
+
+  function monEmailsDaOp(op) {
+    if (!_monContatos || !op.chave) return [];
+    const chaveUp = op.chave.toUpperCase();
+    const unidade = Object.keys(_monContatos).find(k => chaveUp.startsWith(k.toUpperCase()));
+    if (!unidade) return [];
+    const u = _monContatos[unidade];
+    return (u && Array.isArray(u.emails)) ? u.emails : [];
+  }
+
+  // Expõe lookup por opId para uso no tooltip inline do botão Gmail
+  window._monEmailsDaOpById = function(opId) {
+    const op = operations.find(o => o.id === opId);
+    if (!op) return [];
+    return monEmailsDaOp(op);
+  };
+
+  // ── NOME DO USUÁRIO LOGADO ────────────────────────────────────────────────────
+  function monNomeUsuario() {
+    try {
+      const el = document.querySelector('.headertop-nomeappsub');
+      if (!el) return '';
+      const nomeCompleto = el.textContent.trim();
+      const primeiro = nomeCompleto.split(' ')[0] || '';
+      return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
+    } catch(e) { return ''; }
+  }
+
+  // ── SAUDAÇÃO ──────────────────────────────────────────────────────────────────
+  function monSaudacao() {
+    const h = new Date().getHours();
+    return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  }
+
+  function monDataHoje() {
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return dd + '/' + mm + '/' + d.getFullYear();
+  }
+
+  function monHoraFormatada(hora) {
+    if (!hora) return '';
+    return hora.replace(':', 'h').replace(/h00$/, 'h');
+  }
+
+  function monHoraAssunto(hora) {
+    if (!hora) return '';
+    return hora.replace(':', 'H');
+  }
+
+  // ── MENSAGEM WHATSAPP DE ESCALA ───────────────────────────────────────────────
+  window._monGerarMsgEscala = function(opId, btnEl) {
+    const d  = apontCache[opId];
+    const op = operations.find(o => o.id === opId);
+    if (!op) return;
+
+    const atualizada = d && d !== 'loading' && d.listaEnviada === true;
+    const data       = monDataHoje();
+    const hora       = monHoraFormatada(op.hora);
+    const saudacao   = monSaudacao();
+
+    const texto = atualizada
+      ? saudacao + ', time. Segue a escala TSI *atualizada* de *' + data + '* às *' + hora + '*.'
+      : saudacao + ', time. Segue a escala TSI de *' + data + '* às *' + hora + '*.';
+
+    navigator.clipboard.writeText(texto)
+      .then(() => {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '✅ Copiado!';
+        btnEl.style.color = 'var(--mon-green)';
+        setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; }, 2500);
+      })
+      .catch(() => { prompt('Copie a mensagem:', texto); });
+  };
+
+  // ── GMAIL DE ESCALA ───────────────────────────────────────────────────────────
+  window._monAbrirGmailEscala = function(opId, btnEl) {
+    const d  = apontCache[opId];
+    const op = operations.find(o => o.id === opId);
+    if (!op) return;
+
+    const atualizada  = d && d !== 'loading' && d.listaEnviada === true;
+    const data        = monDataHoje();
+    const horaExib    = monHoraFormatada(op.hora);
+    const horaAssunto = monHoraAssunto(op.hora);
+    const nome        = monNomeUsuario();
+    const assinatura  = '\n\nAtenciosamente,\n' + (nome ? nome + '\n' : '') + 'Assistente de Planejamento | TSI';
+
+    const emails = monEmailsDaOp(op);
+    const to     = emails.join(',');
+
+    if (emails.length === 0) {
+      const orig = btnEl.innerHTML;
+      btnEl.innerHTML = '⚠ Sem destinatários';
+      btnEl.style.color = 'var(--mon-amber)';
+      btnEl.style.borderColor = 'var(--mon-amber-border)';
+      setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; btnEl.style.borderColor = ''; }, 3500);
+      return;
+    }
+
+    const assunto = atualizada
+      ? 'TSI - ESCALA ATUALIZADA | ' + data + ' | ' + horaAssunto
+      : 'TSI - ESCALA | ' + data + ' | ' + horaAssunto;
+
+    const corpo = atualizada
+      ? 'Bom dia,\n\nEncaminho a versão atualizada da escala TSI referente ao dia ' + data + ', turno das ' + horaExib + '. Pedimos que desconsiderem a versão anterior.\n\nQualquer dúvida, estou à disposição.' + assinatura
+      : 'Bom dia,\n\nEncaminho a escala TSI referente ao dia ' + data + ', turno das ' + horaExib + ', para conhecimento e organização das atividades.\n\nSolicito a conferência das informações. Qualquer dúvida, estou à disposição.' + assinatura;
+
+    const url = 'https://mail.google.com/mail/?view=cm&fs=1'
+      + (to ? '&to=' + encodeURIComponent(to) : '')
+      + '&su=' + encodeURIComponent(assunto)
+      + '&body=' + encodeURIComponent(corpo);
+
+    window.open(url, '_blank');
+
+    const orig = btnEl.innerHTML;
+    btnEl.innerHTML = '✅ Gmail aberto!';
+    btnEl.style.color = 'var(--mon-green)';
+    setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; }, 3000);
+  };
+
 
 })();
