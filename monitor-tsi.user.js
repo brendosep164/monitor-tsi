@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      22.0
+// @version      23.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1632,7 +1632,26 @@
         color: var(--mon-accent); background: var(--mon-accent-bg);
         border: 1px solid var(--mon-accent-border); border-radius: var(--mon-radius-xs);
         padding: 3px 9px; letter-spacing: -0.2px; font-weight: 600;
+        position: relative;
       }
+      .mon-key-chip::after {
+        content: '\29C8  Copiar chave';
+        position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+        background: var(--mon-surface2); color: var(--mon-text);
+        border: 1px solid var(--mon-border2);
+        font-family: var(--mon-font); font-size: 11px; font-weight: 500;
+        white-space: nowrap; padding: 4px 9px; border-radius: var(--mon-radius-xs);
+        pointer-events: none; opacity: 0; transition: opacity 0.15s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+        letter-spacing: 0;
+      }
+      .mon-key-chip::before {
+        content: '';
+        position: absolute; bottom: calc(100% + 1px); left: 50%; transform: translateX(-50%);
+        border: 5px solid transparent; border-top-color: var(--mon-border2);
+        pointer-events: none; opacity: 0; transition: opacity 0.15s;
+      }
+      .mon-key-chip:hover::after, .mon-key-chip:hover::before { opacity: 1; }
       .mon-copy-btn {
         background: transparent; border: 1px solid var(--mon-border);
         color: var(--mon-text-dim); padding: 4px 10px;
@@ -2183,11 +2202,8 @@
 
     let html = `
       <div class="mon-detail-header">
-        <span class="mon-key-chip">${op.chave}</span>
-        <button class="mon-copy-btn"
-          onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ Copiado';btn.style.color='var(--mon-green)';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ Erro';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)})})(this)">
-          ⎘ Copiar chave
-        </button>
+        <span class="mon-key-chip" title="Clique para copiar a chave" style="cursor:pointer;"
+          onclick="event.stopPropagation();(function(el){navigator.clipboard.writeText('${chaveEsc}').then(()=>{const orig=el.textContent;el.textContent='✓ Copiado!';el.style.background='var(--mon-green)';el.style.color='#fff';el.style.borderColor='var(--mon-green)';setTimeout(()=>{el.textContent=orig;el.style.background='';el.style.color='';el.style.borderColor='';},1600)}).catch(()=>{const orig=el.textContent;el.textContent='✗ Erro';setTimeout(()=>{el.textContent=orig;},1600)})})(this)">${op.chave}</span>
         <button class="mon-copy-btn mon-open-btn" onclick="event.stopPropagation();var el=window._monLinkEls&&window._monLinkEls['${op.id}'];if(el){loadiframe('planejamento-operacional-edit${op.id}_3','Editar Planejamento',570,'modal1500');if(window.$)$('#modal1500').modal('show');}">🔎 Abrir OP</button>
       </div>
 
