@@ -1803,8 +1803,9 @@
         transition: background 0.1s !important;
         display: block !important;
       }
+      #mon-panel .mon-list-row:nth-child(even) { background: var(--mon-surface2) !important; }
       #mon-panel .mon-list-row:last-child { border-bottom: none !important; }
-      #mon-panel .mon-list-row:hover { background: var(--mon-surface2) !important; }
+      #mon-panel .mon-list-row:hover { background: var(--mon-surface3) !important; }
       #mon-panel .mon-list-row-name {
         font-size: 12px !important; font-weight: 600 !important; color: var(--mon-text) !important;
         margin-bottom: 3px !important; display: block !important;
@@ -2063,21 +2064,31 @@
     return '<span class="mon-envelope" title="Lista enviada ao cliente">📋</span>';
   }
 
+  function escBarraBadge(escalado, solicitado, cor, bgCor) {
+    const pct = solicitado > 0 ? Math.min(100, Math.round((escalado / solicitado) * 100)) : 0;
+    return `<div style="display:inline-flex;align-items:center;gap:5px;min-width:80px">
+      <div style="flex:1;height:4px;background:var(--mon-surface3);border-radius:2px;overflow:hidden;min-width:36px">
+        <div style="height:100%;width:${pct}%;background:${cor};border-radius:2px"></div>
+      </div>
+      <span style="font-size:10px;font-weight:600;color:${cor};background:${bgCor};padding:1px 6px;border-radius:99px;white-space:nowrap">${escalado}/${solicitado}</span>
+    </div>`;
+  }
+
   function situacaoBadge(d, op) {
     if (!d || d === 'loading') return '<span class="mon-status-badge neutro">—</span>';
     const escOk = d.escalado >= d.solicitado;
     const aptOk = d.apontado >= d.solicitado;
     if (d._soEscala) {
       if (d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
-      if (escOk)            return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
-      return `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
+      return escBarraBadge(d.escalado, d.solicitado, escOk ? 'var(--mon-blue)' : 'var(--mon-red)', escOk ? 'var(--mon-blue-bg)' : 'var(--mon-red-bg)');
     }
     if (aptOk && escOk) return '<span class="mon-status-badge completo">✓ Completo</span>';
     if (d.apontado === 0 && d.escalado === 0) return '<span class="mon-status-badge nenhum">✗ Nenhum</span>';
     const listaEnviada = d.listaEnviada || (op && apontCache[op.id] && apontCache[op.id].listaEnviada);
-    if (d.apontado === 0 && listaEnviada) return escOk ? '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>' : `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
-    if (d.apontado === 0 && escOk)        return '<span class="mon-status-badge esc-ok">✓ Esc. ok</span>';
-    if (d.apontado === 0)                 return `<span class="mon-status-badge nenhum">Esc. ${d.escalado}/${d.solicitado}</span>`;
+    if (d.apontado === 0 && (listaEnviada || escOk))
+      return escBarraBadge(d.escalado, d.solicitado, escOk ? 'var(--mon-blue)' : 'var(--mon-red)', escOk ? 'var(--mon-blue-bg)' : 'var(--mon-red-bg)');
+    if (d.apontado === 0)
+      return escBarraBadge(d.escalado, d.solicitado, 'var(--mon-red)', 'var(--mon-red-bg)');
     return `<span class="mon-status-badge parcial">△ Apt ${d.apontado}/${d.solicitado}</span>`;
   }
 
@@ -2220,22 +2231,29 @@
         <button class="mon-copy-btn mon-open-btn" onclick="event.stopPropagation();var el=window._monLinkEls&&window._monLinkEls['${op.id}'];if(el){loadiframe('planejamento-operacional-edit${op.id}_3','Editar Planejamento',570,'modal1500');if(window.$)$('#modal1500').modal('show');}">🔎 Abrir OP</button>
       </div>
 
-      <div class="mon-stat-grid">
-        <div class="mon-stat-card">
+      <div class="mon-stat-card" style="display:grid;grid-template-columns:1fr 1px 1fr;margin-bottom:14px;padding:0;overflow:hidden;">
+        <div style="padding:13px 15px;">
           <div class="mon-stat-card-header">
             <span class="mon-stat-card-label">Escalados</span>
-            <span class="mon-stat-card-num" style="color:${escCor}">${d.escalado}<span class="mon-stat-card-sub">/${op.qtd}</span></span>
+            <span style="font-size:10px;font-weight:600;color:${escCor};background:${escPct>=100?'var(--mon-blue-bg)':'var(--mon-surface3)'};padding:1px 7px;border-radius:99px">${escPct}%</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:3px;margin-bottom:8px">
+            <span class="mon-stat-card-num" style="color:${escCor}">${d.escalado}</span>
+            <span class="mon-stat-card-sub">/${op.qtd}</span>
           </div>
           <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${escPct}%;background:${escCor}"></div></div>
-          <div class="mon-stat-card-pct">${escPct}% escalado</div>
         </div>
-        <div class="mon-stat-card">
+        <div style="background:var(--mon-border);"></div>
+        <div style="padding:13px 15px;">
           <div class="mon-stat-card-header">
             <span class="mon-stat-card-label">Apontados</span>
-            <span class="mon-stat-card-num" style="color:${aptCor}">${d.apontado}<span class="mon-stat-card-sub">/${op.qtd}</span></span>
+            <span style="font-size:10px;font-weight:600;color:${aptCor};background:${aptPct>=100?'var(--mon-green-bg)':'var(--mon-surface3)'};padding:1px 7px;border-radius:99px">${aptPct}%</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:3px;margin-bottom:8px">
+            <span class="mon-stat-card-num" style="color:${aptCor}">${d.apontado}</span>
+            <span class="mon-stat-card-sub">/${op.qtd}</span>
           </div>
           <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${aptPct}%;background:${aptCor}"></div></div>
-          <div class="mon-stat-card-pct">${aptPct}% apontado</div>
         </div>
       </div>
     `;
@@ -2314,6 +2332,22 @@
       // Regra: antes de 1h da operação → mostra lista de Escalados
       //        dentro de 1h (ou depois) → mostra Faltando
       const mostrarFaltando = dentroJanela1h(op);
+      // Calcula tempo restante para exibir no header
+      const _tempoRestante = (() => {
+        if (!op.chave) return '';
+        const matchD = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
+        if (!matchD) return '';
+        const [hh, mm] = (op.hora || '').split(':').map(Number);
+        if (isNaN(hh)) return '';
+        const opDate = new Date(parseInt(matchD[3]), parseInt(matchD[2])-1, parseInt(matchD[1]), hh, mm||0, 0);
+        const diffMs = opDate - new Date();
+        const diffM = Math.round(diffMs / 60000);
+        if (diffM < 0) return '';
+        if (diffM < 60) return `⏱ ${diffM}min`;
+        const h = Math.floor(diffM/60), m = diffM%60;
+        return `⏱ ${h}h${m > 0 ? m+'min' : ''}`;
+      })();
+
       if (mostrarFaltando) {
         // ── modo FALTANDO ──
         html += `
@@ -2353,6 +2387,7 @@
               <span class="mon-list-panel-dot" style="background:var(--mon-accent)"></span>
               <span class="mon-list-panel-title">Escalados</span>
               <span class="mon-list-panel-count" style="background:var(--mon-accent-bg);color:var(--mon-accent)">${escalados.length}</span>
+              ${_tempoRestante ? `<span style="margin-left:auto;font-size:10px;font-weight:600;color:var(--mon-accent);background:var(--mon-accent-bg);padding:2px 8px;border-radius:99px;white-space:nowrap">${_tempoRestante}</span>` : ''}
             </div>
             <div class="mon-list-panel-body">`;
         if (escalados.length === 0) {
