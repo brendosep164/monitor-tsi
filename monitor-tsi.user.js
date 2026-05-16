@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      20.0
+// @version      21.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1097,59 +1097,88 @@
   }
 
   // ── DRAG / RESIZE / MINIMIZE ──────────────────────────────────────────────────
+  // Shield único reutilizável — evita múltiplos overlays empilhados ou esquecidos
+  let _monShield = null;
+  function _showShield(cursor) {
+    if (!_monShield) {
+      _monShield = document.createElement('div');
+      _monShield.style.cssText = 'position:fixed;inset:0;z-index:199999;';
+      document.body.appendChild(_monShield);
+    }
+    _monShield.style.cursor = cursor;
+  }
+  function _hideShield() {
+    if (_monShield) { _monShield.remove(); _monShield = null; }
+    document.body.style.userSelect = '';
+  }
+
+  // Altura salva antes de minimizar para restaurar corretamente
+  let _savedPanelHeight = '';
+
   function initControls(panel) {
     panel.style.position = 'fixed';
+    let isDocked = true; // painel começa ancorado na direita via CSS
+
+    // ── RESIZE (alça esquerda) ──────────────────────────────────────────────
     const rh = document.createElement('div');
     rh.className = 'mon-resize-handle';
     rh.addEventListener('mousedown', e => {
       e.preventDefault();
+      e.stopPropagation();
       const startX = e.clientX, startW = panel.offsetWidth;
       document.body.style.userSelect = 'none';
-      // Overlay transparente cobre a página durante o resize — evita que o iframe
-      // ou seleção de texto interfiram, e mantém o scrollbar sempre visível
-      const shield = document.createElement('div');
-      shield.style.cssText = 'position:fixed;inset:0;z-index:99997;cursor:ew-resize;';
-      document.body.appendChild(shield);
-      const mv = e => { panel.style.width = Math.min(Math.max(startW + (startX - e.clientX), 420), window.innerWidth - 80) + 'px'; };
-      const up = () => {
-        document.body.style.userSelect = '';
-        shield.remove();
-        document.removeEventListener('mousemove', mv);
-        document.removeEventListener('mouseup', up);
+      _showShield('ew-resize');
+      const mv = e => {
+        const newW = Math.min(Math.max(startW + (startX - e.clientX), 380), window.innerWidth - 40);
+        panel.style.width = newW + 'px';
       };
-      document.addEventListener('mousemove', mv);
-      document.addEventListener('mouseup', up);
+      const up = () => {
+        _hideShield();
+        window.removeEventListener('mousemove', mv);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', mv);
+      window.addEventListener('mouseup', up);
     });
     panel.appendChild(rh);
 
+    // ── DRAG (header) ───────────────────────────────────────────────────────
     const header = panel.querySelector('#mon-header');
-    if (header) {
-      header.addEventListener('mousedown', e => {
-        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
-        e.preventDefault();
-        header.style.cursor = 'grabbing';
-        const rect = panel.getBoundingClientRect();
-        const ox = e.clientX - rect.left, oy = e.clientY - rect.top;
-        document.body.style.userSelect = 'none';
-        const shield = document.createElement('div');
-        shield.style.cssText = 'position:fixed;inset:0;z-index:99997;cursor:grabbing;';
-        document.body.appendChild(shield);
-        const mv = e => {
-          panel.style.left  = Math.max(0, Math.min(e.clientX - ox, window.innerWidth - panel.offsetWidth)) + 'px';
-          panel.style.top   = Math.max(0, Math.min(e.clientY - oy, window.innerHeight - 60)) + 'px';
-          panel.style.right = 'auto';
-        };
-        const up = () => {
-          header.style.cursor = '';
-          document.body.style.userSelect = '';
-          shield.remove();
-          document.removeEventListener('mousemove', mv);
-          document.removeEventListener('mouseup', up);
-        };
-        document.addEventListener('mousemove', mv);
-        document.addEventListener('mouseup', up);
-      });
-    }
+    if (!header) return;
+
+    header.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+      e.preventDefault();
+
+      // Converte de right-anchored para posição absoluta na primeira arrastada
+      if (isDocked) {
+        const r = panel.getBoundingClientRect();
+        panel.style.left  = r.left + 'px';
+        panel.style.top   = r.top  + 'px';
+        panel.style.right = 'auto';
+        isDocked = false;
+      }
+
+      const r  = panel.getBoundingClientRect();
+      const ox = e.clientX - r.left;
+      const oy = e.clientY - r.top;
+      document.body.style.userSelect = 'none';
+      header.style.cursor = 'grabbing';
+      _showShield('grabbing');
+
+      const mv = e => {
+        panel.style.left = Math.max(0, Math.min(e.clientX - ox, window.innerWidth  - panel.offsetWidth))  + 'px';
+        panel.style.top  = Math.max(0, Math.min(e.clientY - oy, window.innerHeight - 60)) + 'px';
+      };
+      const up = () => {
+        header.style.cursor = '';
+        _hideShield();
+        window.removeEventListener('mousemove', mv);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', mv);
+      window.addEventListener('mouseup', up);
+    });
   }
 
   window._monMinimize = function() {
@@ -1158,9 +1187,18 @@
     const panel = document.getElementById('mon-panel');
     if (!body || !btn || !panel) return;
     minimized = !minimized;
-    body.style.display = minimized ? 'none' : '';
-    panel.style.height = minimized ? 'auto' : '100vh';
-    btn.innerHTML = minimized ? '&#9633;' : '&#8212;';
+    if (minimized) {
+      _savedPanelHeight = panel.style.height || '';
+      body.style.display  = 'none';
+      panel.style.height  = 'auto';
+      panel.style.overflow = 'visible';
+      btn.innerHTML = '&#9633;';
+    } else {
+      body.style.display  = '';
+      panel.style.height  = _savedPanelHeight || '100vh';
+      panel.style.overflow = 'hidden';
+      btn.innerHTML = '&#8212;';
+    }
   };
 
   // ── BOTÃO FLUTUANTE ───────────────────────────────────────────────────────────
