@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      22.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -2183,8 +2183,11 @@
 
     let html = `
       <div class="mon-detail-header">
-        <span class="mon-key-chip" title="Clique para copiar a chave" style="cursor:pointer;"
-          onclick="event.stopPropagation();(function(el){navigator.clipboard.writeText('${chaveEsc}').then(()=>{const orig=el.textContent;el.textContent='✓ Copiado!';el.style.background='var(--mon-green)';el.style.color='#fff';el.style.borderColor='var(--mon-green)';setTimeout(()=>{el.textContent=orig;el.style.background='';el.style.color='';el.style.borderColor='';},1600)}).catch(()=>{const orig=el.textContent;el.textContent='✗ Erro';setTimeout(()=>{el.textContent=orig;},1600)})})(this)">${op.chave}</span>
+        <span class="mon-key-chip">${op.chave}</span>
+        <button class="mon-copy-btn"
+          onclick="event.stopPropagation();(function(btn){navigator.clipboard.writeText('${chaveEsc}').then(()=>{btn.textContent='✓ Copiado';btn.style.color='var(--mon-green)';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)}).catch(()=>{btn.textContent='✗ Erro';setTimeout(()=>{btn.textContent='⎘ Copiar chave';btn.style.color='';},1800)})})(this)">
+          ⎘ Copiar chave
+        </button>
         <button class="mon-copy-btn mon-open-btn" onclick="event.stopPropagation();var el=window._monLinkEls&&window._monLinkEls['${op.id}'];if(el){loadiframe('planejamento-operacional-edit${op.id}_3','Editar Planejamento',570,'modal1500');if(window.$)$('#modal1500').modal('show');}">🔎 Abrir OP</button>
       </div>
 
@@ -2715,7 +2718,7 @@
     if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
     const links = d.pdfLinks || [];
     const l = links[idx];
-    if (!l) { alert('Link n�o encontrado.'); return; }
+    if (!l) { alert('Link n o encontrado.'); return; }
     const op = operations.find(o => o.id === opId);
     const chave = op ? op.chave : opId;
     const atualizada = d.listaEnviada === true;
@@ -2725,7 +2728,7 @@
     fetch('https://tsi-app.com/' + l.href, { credentials: 'include' })
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
       .then(blob => {
-        // For�a download como octet-stream para o browser n�o abrir inline
+        // For a download como octet-stream para o browser n o abrir inline
         const forcedBlob = new Blob([blob], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(forcedBlob);
         const a = document.createElement('a');
