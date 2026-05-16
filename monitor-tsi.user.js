@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      17.0
+// @version      18.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -2227,21 +2227,30 @@
   }
 
   function toggleRow(op, idx) {
-    if (expanded.has(op.chave)) { expanded.delete(op.chave); renderTable(); return; }
-    expanded.add(op.chave);
+    const isOpen = expanded.has(op.chave);
+    expanded.clear();
+    if (!isOpen) {
+      expanded.add(op.chave);
+    }
     renderTable();
-    const cached = apontCache[op.id];
-    if (!cached || cached === 'loading') {
-      const poll = setInterval(() => {
-        const c = apontCache[op.id];
-        if (c && c !== 'loading') {
-          clearInterval(poll);
-          const det = document.getElementById('det-' + idx);
-          if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
-          updateMetrics();
-        }
-      }, 500);
-      setTimeout(() => clearInterval(poll), 40000);
+    if (!isOpen) {
+      setTimeout(() => {
+        const det = document.getElementById('det-' + idx);
+        if (det) det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
+      const cached = apontCache[op.id];
+      if (!cached || cached === 'loading') {
+        const poll = setInterval(() => {
+          const c = apontCache[op.id];
+          if (c && c !== 'loading') {
+            clearInterval(poll);
+            const det = document.getElementById('det-' + idx);
+            if (det) det.querySelector('.mon-detail-inner').innerHTML = renderDetail(op);
+            updateMetrics();
+          }
+        }, 500);
+        setTimeout(() => clearInterval(poll), 40000);
+      }
     }
   }
 
