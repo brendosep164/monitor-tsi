@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      18.0
+// @version      19.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -409,7 +409,7 @@
             // 3) Busca apontamentos
             return fetchDoc('https://tsi-app.com/' + eaptHref)
               .then(doc3 => {
-                const colaboradores = [];
+                const colaboradores = [], faltasConfirmadas = [];
                 const tbl3 = doc3.querySelector('table.tables.table-fixed.card-table:not(.table-bordered)');
                 if (tbl3) {
                   tbl3.querySelectorAll('tbody tr').forEach(row => {
@@ -420,7 +420,8 @@
                     const origem = cells[9]?.textContent?.trim();
                     const inicio = cells[8]?.textContent?.trim();
                     if (!nome || nome.length < 3) return;
-                    if (origem === 'FALTA') return;
+                    const isFalta = origem === 'FALTA';
+                    if (isFalta) { faltasConfirmadas.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio }); return; }
                     if (!inicio) return;
                     // DIST do INÍCIO OPORTUNIDADE = coluna 10, formato "0,08 km" ou "399,56 km"
                     const distRaw = cells[10]?.textContent?.trim() || '';
@@ -431,7 +432,7 @@
                 }
                 const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
                 const faltando = escalados.filter(e => !apontadosCPF.has(e.cpf));
-                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, pdfLinks, xlsLinks, listaEnviada, todosConfirmados, eaptHref, lideres });
+                release({ solicitado: op.qtd, escalado: escalados.length, apontado: colaboradores.length, colaboradores, escalados, faltando, faltasConfirmadas, pdfLinks, xlsLinks, listaEnviada, todosConfirmados, eaptHref, lideres });
               });
           });
       })
@@ -482,7 +483,6 @@
     ifr.onload = null;
     ifr.src = 'https://tsi-app.com/planejamento-operacional-edit' + opId + '_1';
     ifr.onload = function() {
-      setTimeout(() => {
         if (done) return;
         try {
           const doc = ifr.contentDocument;
@@ -510,10 +510,9 @@
               btnEl.innerHTML = '✓ Enviado!';
               btnEl.style.opacity = '1';
               setTimeout(() => window.location.reload(), 1500);
-            }, 2500);
-          }, 700);
+            }, 500);
+          }, 50);
         } catch(e) { fail('erro'); clearTimeout(safetyTimer); }
-      }, 2000);
     };
   }
 
@@ -548,7 +547,6 @@
     ifr.onload = null;
     ifr.src = 'https://tsi-app.com/planejamento-operacional-edit' + opId + '_1';
     ifr.onload = function() {
-      setTimeout(() => {
         if (done) return;
         try {
           const doc = ifr.contentDocument;
@@ -610,10 +608,9 @@
               btnEl.innerHTML = '✓ Enviado!';
               btnEl.style.opacity = '1';
               setTimeout(() => window.location.reload(), 1500);
-            }, 2500);
-          }, 700);
+            }, 500);
+          }, 50);
         } catch(e) { fail('erro'); clearTimeout(safetyTimer); }
-      }, 2000);
     };
   }
 
@@ -858,7 +855,7 @@
                 cleanup();
                 fail('Erro: ' + e.message);
               }
-            }, 800);
+            }, 100);
           };
           script.onerror = () => { clearTimeout(safetyTimeout); cleanup(); fail('Erro ao carregar html2canvas'); };
           ifrDoc.head.appendChild(script);
@@ -867,7 +864,7 @@
           cleanup();
           fail('Erro de acesso ao iframe: ' + e.message);
         }
-      }, 1800);
+      }, 300);
     };
 
     printIfr.src = 'https://tsi-app.com/' + href;
@@ -1906,7 +1903,7 @@
           <table id="mon-table">
             <thead>
               <tr>
-                <th style="width:20%">Chave</th>
+                <th style="width:15%">Chave</th>
                 <th style="width:9%">Sigla</th>
                 <th class="center mon-th-sort" data-col="esc" style="width:13%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
                 <th class="center mon-th-sort" data-col="apt" style="width:13%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
@@ -2183,12 +2180,17 @@
         html += `<div class="mon-list-empty">Nenhum apontamento ainda</div>`;
       } else {
         colab.forEach(c => {
+          const kmColor = c.dist > 0 ? (c.dist < 1 ? 'var(--mon-green)' : 'var(--mon-red)') : '';
+          const kmBg    = c.dist > 0 ? (c.dist < 1 ? 'var(--mon-green-bg)' : 'var(--mon-red-bg)') : '';
+          const kmBorder= c.dist > 0 ? (c.dist < 1 ? 'var(--mon-green-border,rgba(22,163,74,0.25))' : 'var(--mon-red-border,rgba(220,38,38,0.25))') : '';
+          const kmTag = c.dist > 0 ? `<span class="mon-list-row-tipo" style="background:${kmBg};color:${kmColor};border:1px solid ${kmBorder};border-radius:4px;padding:1px 6px;font-weight:600">📍 ${c.dist.toFixed(2)} km</span>` : '';
           html += `
             <div class="mon-list-row">
               <div class="mon-list-row-name">${c.nome}</div>
               <div class="mon-list-row-meta">
                 <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
                 <span class="mon-list-row-time">${c.inicio}</span>
+                ${kmTag}
               </div>
             </div>`;
         });
@@ -2202,6 +2204,10 @@
             <span class="mon-list-panel-dot" style="background:var(--mon-red)"></span>
             <span class="mon-list-panel-title">Faltando</span>
             <span class="mon-list-panel-count" style="background:var(--mon-red-bg);color:var(--mon-red)">${faltando.length}</span>
+            ${(d.faltasConfirmadas||[]).length > 0 ? '<span onclick="event.stopPropagation();var b=document.getElementById(\'fc-'+op.id+'\');var a=this.querySelector(\'.fc-arr\');if(b.style.display===\'none\'){b.style.display=\'block\';a.style.transform=\'rotate(180deg)\';}else{b.style.display=\'none\';a.style.transform=\'\';}" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;margin-left:auto;background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;color:var(--mon-red)">⚠ Faltas ('+((d.faltasConfirmadas||[]).length)+')<span class="fc-arr" style="transition:transform 0.2s;font-size:9px">▼</span></span>' : ''}
+          </div>
+          <div id="fc-${op.id}" style="display:none;padding:6px 10px;border-bottom:1px solid var(--mon-border)">
+            ${(d.faltasConfirmadas||[]).map(c => '<div class="mon-list-row" style="background:var(--mon-red-bg);border-radius:6px;margin-bottom:3px;border:none"><div class="mon-list-row-name" style="color:var(--mon-red)">'+c.nome+'</div><div class="mon-list-row-meta"><span class="mon-list-row-tipo">'+(c.tipo||'—')+'</span>'+(c.inicio ? '<span class="mon-list-row-tipo">🕐 '+c.inicio+'</span>' : '')+'</div></div>').join('')}
           </div>
           <div class="mon-list-panel-body">`;
       if (faltando.length === 0) {
@@ -2218,6 +2224,7 @@
               </div>
             </div>`;
         });
+
       }
       html += `</div></div>`;
 
