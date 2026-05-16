@@ -976,6 +976,7 @@
   // ── ATUALIZAÇÃO MANUAL ────────────────────────────────────────────────────────
   function manualRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
+    if (_alignTimeout) clearTimeout(_alignTimeout);
     monCarregarContatos();
     iframesInUse = {};
     fetchQueue   = [];
@@ -987,7 +988,7 @@
       if (ifr) { ifr.onload = null; try { ifr.src = 'about:blank'; } catch(e) {} }
     });
     fetchOperations();
-    refreshTimer = setInterval(silentRefresh, 60 * 1000);
+    scheduleAlignedRefresh();
   }
   window._monRefresh = manualRefresh;
 
@@ -1235,8 +1236,9 @@
         0%, 100% { opacity: 1; transform: scale(1); }
         50%       { opacity: 0.6; transform: scale(0.85); }
       }
-      @keyframes mon-spin {
-        to { transform: rotate(360deg); }
+      @keyframes mon-hg-thread-blink {
+        0%, 100% { opacity: 0.7; }
+        50%       { opacity: 0.2; }
       }
       @keyframes mon-row-in {
         from { opacity: 0; transform: translateX(4px); }
@@ -1319,14 +1321,13 @@
         display: flex; align-items: center; gap: 10px; flex-shrink: 0;
       }
       .mon-logo-icon {
-        width: 32px; height: 32px; border-radius: 8px;
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+        width: 32px; height: 32px; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-size: 15px; color: #fff; font-weight: 800;
-        flex-shrink: 0;
-        box-shadow: 0 2px 8px rgba(79,70,229,0.3);
-        font-family: var(--mon-font);
-        letter-spacing: -0.5px;
+        flex-shrink: 0; overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,100,0,0.35);
+      }
+      .mon-logo-icon img {
+        width: 32px; height: 32px; object-fit: cover; display: block;
       }
       .mon-logo-text {
         display: flex; flex-direction: column; gap: 0px;
@@ -1849,10 +1850,16 @@
       <!-- HEADER -->
       <div id="mon-header">
         <div class="mon-logo">
-          <div class="mon-logo-icon">M</div>
+          <div class="mon-logo-icon"><img src="https://upload.wikimedia.org/wikipedia/commons/1/10/Palmeiras_logo.svg" alt="TSI" onerror="this.style.display='none';this.parentElement.textContent='M'" /></div>
           <div class="mon-logo-text">
             <div class="mon-logo-title">Monitor TSI</div>
-            <div class="mon-logo-sub" id="mon-sub">Inicializando…</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-top:1px;">
+              <div class="mon-logo-sub" id="mon-sub">Inicializando…</div>
+              <div id="mon-hourglass-wrap" title="Próxima atualização automática" style="display:flex;align-items:center;gap:2px;line-height:1;">
+                <span id="mon-hg-icon" style="font-size:11px;line-height:1;display:inline-block;transition:transform 0.3s;">⏳</span>
+                <span id="mon-hg-count" style="font-size:10px;font-family:var(--mon-mono);color:var(--mon-text-faint);font-weight:600;">—</span>
+              </div>
+            </div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:7px;flex-wrap:nowrap">
@@ -2304,11 +2311,77 @@
     }
   }
 
+  // ── AMPULHETA ANIMADA (countdown visual) ──────────────────────────────────────
+  let _hgInterval = null;
+
+  function startCountdown(totalSec) {
+    if (totalSec === undefined) {
+      const agora = new Date();
+      totalSec = 60 - agora.getSeconds();
+    }
+    if (totalSec <= 0) totalSec = 60;
+
+    if (_hgInterval) clearInterval(_hgInterval);
+
+    let remaining = totalSec;
+    // Alterna entre ⏳ e ⌛ para dar sensação de movimento
+    let flip = false;
+
+    const tick = () => {
+      const count = document.getElementById('mon-hg-count');
+      const icon  = document.getElementById('mon-hg-icon');
+      if (!count) return;
+
+      count.textContent = remaining + 's';
+      if (icon) {
+        flip = !flip;
+        icon.textContent = flip ? '⌛' : '⏳';
+      }
+      remaining--;
+
+      if (remaining < 0) {
+        clearInterval(_hgInterval);
+        _hgInterval = null;
+        if (count) count.textContent = '—';
+        if (icon)  icon.textContent  = '⏳';
+      }
+    };
+
+    tick();
+    _hgInterval = setInterval(tick, 1000);
+  }
+
+  // ── TIMER ALINHADO AO MINUTO FECHADO ─────────────────────────────────────────
+  let _alignTimeout = null;
+
+  function scheduleAlignedRefresh() {
+    if (refreshTimer)    clearInterval(refreshTimer);
+    if (_alignTimeout)   clearTimeout(_alignTimeout);
+    refreshTimer   = null;
+    _alignTimeout  = null;
+
+    const agora            = new Date();
+    const msAteProxMinuto  = (60 - agora.getSeconds()) * 1000 - agora.getMilliseconds();
+
+    _alignTimeout = setTimeout(() => {
+      _alignTimeout = null;
+      silentRefresh();
+      startCountdown(); // reinicia ampulheta
+      refreshTimer = setInterval(() => {
+        silentRefresh();
+        startCountdown();
+      }, 60 * 1000);
+    }, msAteProxMinuto);
+
+    // Inicia a ampulheta com o tempo real até o próximo minuto
+    startCountdown(Math.round(msAteProxMinuto / 1000));
+  }
+
   function startMonitor() {
     window._monRunning = true;
     monCarregarContatos();
     fetchOperations();
-    refreshTimer  = setInterval(silentRefresh, 60 * 1000);
+    scheduleAlignedRefresh();
     startWatchdog();
   }
 
