@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      22.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1122,7 +1122,8 @@
     if (naJanela(op)) {
       if (cells[3]) cells[3].innerHTML = apontBadge(d, op.qtd);
     }
-    if (cells[6]) cells[6].innerHTML = situacaoBadge(d, op) + escalaEnviadaBadge(op);
+    if (cells[6]) cells[6].innerHTML = situacaoBadge(d, op);
+    if (cells[7]) cells[7].innerHTML = escalaEnviadaBadge(op);
 
     const _nid = String(op.id);
 
@@ -1152,7 +1153,7 @@
                          typeof d.escalado === 'number' && op.qtd > 0 &&
                          d.escalado >= op.qtd;
     const _nidEsc = 'esc_' + String(op.id);
-    if (_escCompleta && !notifEscala.has(_nidEsc)) {
+    if (_escCompleta && !d.todosConfirmados && !notifEscala.has(_nidEsc)) {
       notifyEscala(op, d);
       notifEscala.add(_nidEsc);
       notifEscSave();
@@ -2210,8 +2211,9 @@
                 <th class="center mon-th-sort" data-col="esc" style="width:13%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
                 <th class="center mon-th-sort" data-col="apt" style="width:13%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
                 <th class="mon-th-sort" data-col="hora" style="width:8%" onclick="window._monToggleSort('hora',this)">Hora <span class="mon-sort-arrow"></span></th>
-                <th style="width:20%">Líder</th>
-                <th class="center mon-th-sort" data-col="status" style="width:18%" onclick="window._monToggleSort('status',this)">Status <span class="mon-sort-arrow"></span></th>
+                <th style="width:14%">Líder</th>
+                <th class="center mon-th-sort" data-col="status" style="width:20%" onclick="window._monToggleSort('status',this)">Status <span class="mon-sort-arrow"></span></th>
+                <th style="width:10%"></th>
                 <th style="width:4%"></th>
               </tr>
             </thead>
@@ -2261,8 +2263,10 @@
 
   function escalaEnviadaBadge(op) {
     const d = apontCache[op.id];
-    if (!d || d === 'loading' || !d.listaEnviada) return '';
-    return '<span class="mon-envelope" title="Lista enviada ao cliente">📋</span>';
+    if (!d || d === 'loading') return '';
+    if (d.todosConfirmados) return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:#1d4ed8;background:rgba(29,78,216,0.09);border:1px solid rgba(29,78,216,0.28);border-radius:99px;padding:2px 7px;white-space:nowrap;" title="Report enviado"><i class="ti ti-circle-check" style="font-size:11px" aria-hidden="true"></i> Report enviado</span>';
+    if (d.listaEnviada) return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:#0a7c57;background:rgba(10,124,87,0.1);border:1px solid rgba(10,124,87,0.28);border-radius:99px;padding:2px 7px;white-space:nowrap;" title="Escala enviada"><i class="ti ti-circle-check" style="font-size:11px" aria-hidden="true"></i> Esc. enviada</span>';
+    return '';
   }
 
   function escBarraBadge(escalado, solicitado, cor, bgCor) {
@@ -2326,7 +2330,7 @@
     if (!tbody) return;
     tbody.innerHTML = '';
     if (operations.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação encontrada</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação encontrada</td></tr>`;
       updateMetrics();
       return;
     }
@@ -2338,7 +2342,7 @@
     if (inp && !filterText) inp.placeholder = `Filtrar por chave, sigla ou site… (${operations.length} ops)`;
 
     if (visibleOps.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação corresponde ao filtro</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--mon-text-faint);font-size:13px">Nenhuma operação corresponde ao filtro</td></tr>`;
       updateMetrics();
       return;
     }
@@ -2402,8 +2406,9 @@
         <td><span class="mon-hora">${op.hora}</span></td>
         <td><span class="mon-lider">${hl(op.lider)}</span></td>
         <td style="text-align:center">
-          ${situacaoBadge(temDados ? d : null, op)}${escalaEnviadaBadge(op)}
+          ${situacaoBadge(temDados ? d : null, op)}
         </td>
+        <td>${escalaEnviadaBadge(op)}</td>
         <td style="text-align:center"><span class="mon-chevron">▼</span></td>
       `;
       tr.onclick = () => toggleRow(op, idx);
@@ -2413,7 +2418,7 @@
         const det = document.createElement('tr');
         det.id = 'det-' + idx;
         det.className = 'op-detail';
-        det.innerHTML = `<td colspan="8"><div class="mon-detail-inner">${renderDetail(op)}</div></td>`;
+        det.innerHTML = `<td colspan="9"><div class="mon-detail-inner">${renderDetail(op)}</div></td>`;
         tbody.appendChild(det);
       }
     });
