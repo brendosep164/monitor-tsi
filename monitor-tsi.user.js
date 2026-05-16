@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      22.0
+// @version      23.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1041,11 +1041,13 @@
     });
     fetchOperations();
     scheduleAlignedRefresh();
+    _obsLoad(() => renderTable()); // atualiza obs ao clicar em Atualizar
   }
   window._monRefresh = manualRefresh;
 
   // ── ATUALIZAÇÃO SILENCIOSA ────────────────────────────────────────────────────
   function silentRefresh() {
+    _obsLoad(() => renderTable()); // poll obs a cada 1 min
     // Usa apenas as ops da página atual que está sendo visualizada
     const ops = parseOpsFromDoc(document);
     if (ops.length === 0) return;
@@ -1782,8 +1784,8 @@
       .mon-chave {
         font-family: var(--mon-mono);
         font-size: 11px; color: var(--mon-accent);
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        letter-spacing: -0.2px; display: block;
+        white-space: nowrap; overflow: hidden;
+        letter-spacing: -0.3px; display: block;
         font-weight: 600;
       }
       .mon-sigla {
@@ -1833,6 +1835,65 @@
       .mon-status-badge.nenhum    { color: var(--mon-red); background: var(--mon-red-bg); border-color: var(--mon-red-border); }
       .mon-status-badge.neutro    { color: var(--mon-text-faint); background: transparent; }
       .mon-envelope { font-size: 12px; margin-left: 4px; opacity: 0.7; }
+
+      /* ── OBS BALÃO ── */
+      .mon-obs-badge {
+        position: absolute; top: -4px; right: -4px;
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #e53e3e; border: 1.5px solid var(--mon-surface);
+        pointer-events: none;
+      }
+      .mon-obs-wrap { position: relative; display: inline-block; line-height: 0; }
+      .mon-obs-btn {
+        background: none; border: none; cursor: pointer; padding: 3px 5px;
+        border-radius: 6px; color: var(--mon-text-faint); font-size: 14px;
+        line-height: 1; transition: color 0.15s, background 0.15s;
+        display: inline-flex; align-items: center;
+      }
+      .mon-obs-btn:hover { color: var(--mon-accent); background: var(--mon-surface2); }
+      .mon-obs-btn.has-obs { color: var(--mon-amber); }
+      .mon-obs-popover {
+        position: fixed; z-index: 999999;
+        background: var(--mon-surface); border: 1px solid var(--mon-border2);
+        border-radius: 10px; padding: 14px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        width: 280px; display: none; flex-direction: column; gap: 10px;
+      }
+      .mon-obs-popover.open { display: flex; }
+      .mon-obs-header { display: flex; justify-content: space-between; align-items: center; }
+      .mon-obs-title { font-size: 12px; font-weight: 700; color: var(--mon-text); }
+      .mon-obs-close { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--mon-text-faint); line-height: 1; padding: 0; }
+      .mon-obs-textarea {
+        width: 100%; min-height: 70px; resize: vertical;
+        border: 1px solid var(--mon-border2); border-radius: 6px;
+        padding: 7px 9px; font-size: 12px; font-family: var(--mon-font);
+        background: var(--mon-bg); color: var(--mon-text);
+        box-sizing: border-box;
+      }
+      .mon-obs-textarea:focus { outline: none; border-color: var(--mon-accent); }
+      .mon-obs-meta { font-size: 11px; color: var(--mon-text-faint); }
+      .mon-obs-actions { display: flex; gap: 6px; }
+      .mon-obs-save {
+        flex: 1; padding: 5px 0; border-radius: 6px; border: none; cursor: pointer;
+        background: var(--mon-accent); color: #fff; font-size: 12px; font-weight: 600;
+      }
+      .mon-obs-save:hover { opacity: 0.88; }
+      .mon-obs-hist-btn {
+        padding: 5px 10px; border-radius: 6px; border: 1px solid var(--mon-border2);
+        background: none; cursor: pointer; font-size: 12px; color: var(--mon-text-dim);
+      }
+      .mon-obs-hist-btn:hover { background: var(--mon-surface2); }
+      .mon-obs-hist {
+        display: none; flex-direction: column; gap: 6px;
+        max-height: 160px; overflow-y: auto;
+      }
+      .mon-obs-hist.open { display: flex; }
+      .mon-obs-hist-item {
+        font-size: 11px; padding: 6px 8px; border-radius: 6px;
+        background: var(--mon-surface2); color: var(--mon-text-dim);
+        border-left: 2px solid var(--mon-border2);
+      }
+      .mon-obs-hist-item strong { color: var(--mon-text); font-weight: 600; }
 
       /* ── SORT HEADERS ── */
       .mon-th-sort { cursor: pointer; user-select: none; }
@@ -2206,13 +2267,13 @@
           <table id="mon-table">
             <thead>
               <tr>
-                <th style="width:15%">Chave</th>
-                <th style="width:9%">Sigla</th>
-                <th class="center mon-th-sort" data-col="esc" style="width:13%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
-                <th class="center mon-th-sort" data-col="apt" style="width:13%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
-                <th class="mon-th-sort" data-col="hora" style="width:8%" onclick="window._monToggleSort('hora',this)">Hora <span class="mon-sort-arrow"></span></th>
-                <th style="width:14%">Líder</th>
-                <th class="center mon-th-sort" data-col="status" style="width:20%" onclick="window._monToggleSort('status',this)">Status <span class="mon-sort-arrow"></span></th>
+                <th style="width:22%">Chave</th>
+                <th style="width:8%">Sigla</th>
+                <th class="center mon-th-sort" data-col="esc" style="width:10%" onclick="window._monToggleSort('esc',this)">Esc / Sol <span class="mon-sort-arrow"></span></th>
+                <th class="center mon-th-sort" data-col="apt" style="width:10%" onclick="window._monToggleSort('apt',this)">Apt / Sol <span class="mon-sort-arrow"></span></th>
+                <th class="mon-th-sort" data-col="hora" style="width:6%" onclick="window._monToggleSort('hora',this)">Hora <span class="mon-sort-arrow"></span></th>
+                <th style="width:12%">Líder</th>
+                <th class="center mon-th-sort" data-col="status" style="width:16%" onclick="window._monToggleSort('status',this)">Status <span class="mon-sort-arrow"></span></th>
                 <th style="width:10%"></th>
                 <th style="width:4%"></th>
               </tr>
@@ -2381,7 +2442,7 @@
       tr.style.borderLeft = '3px solid ' + _bordaCor;
 
       tr.innerHTML = `
-        <td><span class="mon-chave" title="${op.chave}">${hl(op.chave)}</span></td>
+        <td style="position:relative"><span class="mon-chave" title="${op.chave}">${hl(op.chave)}</span><span class="mon-obs-wrap" style="position:absolute;right:-10px;top:50%;transform:translateY(-50%)"><button class="mon-obs-btn" onclick="event.stopPropagation();window._monAbrirObs('${op.id}',this)" title="Observações">💬</button></span></td>
         <td><span class="mon-sigla">${hl(op.sigla)}</span></td>
         <td>
           ${op.id
@@ -2411,6 +2472,34 @@
         <td>${escalaEnviadaBadge(op)}</td>
         <td style="text-align:center"><span class="mon-chevron">▼</span></td>
       `;
+      // injeta vars de obs no template (já renderizado acima via innerHTML)
+      // precisamos reprocessar o botão de obs com os dados corretos
+      const _obsData      = window._monObsCache && window._monObsCache[op.id];
+      const _obsReportEnv = temDados && d.todosConfirmados;
+      const obsBtn = tr.querySelector('.mon-obs-btn');
+      const obsWrap = tr.querySelector('.mon-obs-wrap');
+      if (obsBtn) {
+        if (_obsData && _obsData.texto && !_obsReportEnv) {
+          obsBtn.classList.add('has-obs');
+        } else {
+          obsBtn.classList.remove('has-obs');
+        }
+      }
+      // Badge vermelho se tem obs e ainda não foi vista
+      if (obsWrap) {
+        const jaViu = _monObsVistas.has(op.id);
+        const temObs = _obsData && _obsData.texto && !_obsReportEnv;
+        const badge = obsWrap.querySelector('.mon-obs-badge');
+        if (temObs && !jaViu) {
+          if (!badge) {
+            const b = document.createElement('span');
+            b.className = 'mon-obs-badge';
+            obsWrap.appendChild(b);
+          }
+        } else {
+          if (badge) badge.remove();
+        }
+      }
       tr.onclick = () => toggleRow(op, idx);
       tbody.appendChild(tr);
 
@@ -3312,5 +3401,211 @@
     setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; }, 3000);
   };
 
+
+  // ── OBS BALÃO ────────────────────────────────────────────────────────────────
+  window._monObsCache = {};
+  let _obsPopover = null;
+  let _obsCurrentOpId = null;
+
+  // IDs de obs já abertas — persiste no localStorage
+  const _OBS_VISTAS_KEY = '_monObsVistas';
+  function _obsVistasLoad() {
+    try { return new Set(JSON.parse(localStorage.getItem(_OBS_VISTAS_KEY) || '[]')); } catch(e) { return new Set(); }
+  }
+  function _obsVistasSave() {
+    try { localStorage.setItem(_OBS_VISTAS_KEY, JSON.stringify([..._monObsVistas])); } catch(e) {}
+  }
+  const _monObsVistas = _obsVistasLoad();
+
+  const _MON_OBS_BIN_ID  = '69dd9cfa36566621a8ae40e1';
+  const _MON_OBS_BIN_KEY = '$2a$10$re7SEj86dL3mQnxKBMLFvu7f566NmQucI1RwyW5t9tfYCrCQUExt.';
+  const _MON_OBS_BIN_URL = 'https://api.jsonbin.io/v3/b/' + _MON_OBS_BIN_ID;
+
+  // Cria popover no DOM (uma vez)
+  function _obsEnsurePopover() {
+    if (_obsPopover) return;
+    _obsPopover = document.createElement('div');
+    _obsPopover.className = 'mon-obs-popover';
+    _obsPopover.id = 'mon-obs-popover';
+    _obsPopover.innerHTML = `
+      <div class="mon-obs-header">
+        <span class="mon-obs-title">💬 Observações</span>
+        <button class="mon-obs-close" onclick="window._monFecharObs()">✕</button>
+      </div>
+      <textarea class="mon-obs-textarea" id="mon-obs-text" placeholder="Digite uma observação..."></textarea>
+      <div class="mon-obs-meta" id="mon-obs-meta"></div>
+      <div class="mon-obs-actions">
+        <button class="mon-obs-save" onclick="window._monSalvarObs()">Salvar</button>
+        <button class="mon-obs-hist-btn" onclick="window._monToggleObsHist()">Histórico</button>
+      </div>
+      <div class="mon-obs-hist" id="mon-obs-hist"></div>
+    `;
+    document.body.appendChild(_obsPopover);
+
+    // fecha ao clicar fora
+    document.addEventListener('click', function(e) {
+      if (_obsPopover && _obsPopover.classList.contains('open') && !_obsPopover.contains(e.target)) {
+        window._monFecharObs();
+      }
+    });
+  }
+
+  // Carrega obs do JSONBin
+  function _obsLoad(cb) {
+    fetch(_MON_OBS_BIN_URL + '/latest', { headers: { 'X-Master-Key': _MON_OBS_BIN_KEY } })
+      .then(r => r.json())
+      .then(j => {
+        const obs = (j.record && j.record.obs) ? j.record.obs : {};
+        window._monObsCache = obs;
+        if (cb) cb(obs);
+      })
+      .catch(() => { if (cb) cb(window._monObsCache || {}); });
+  }
+
+  // Salva obs no JSONBin (lê record atual, atualiza só a chave obs)
+  function _obsSave(obs, cb) {
+    window._monObsCache = obs;
+    fetch(_MON_OBS_BIN_URL + '/latest', { headers: { 'X-Master-Key': _MON_OBS_BIN_KEY } })
+      .then(r => r.json())
+      .then(j => {
+        const rec = j.record || {};
+        rec.obs = obs;
+        return fetch(_MON_OBS_BIN_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': _MON_OBS_BIN_KEY },
+          body: JSON.stringify(rec)
+        });
+      })
+      .then(() => { if (cb) cb(); })
+      .catch(() => { if (cb) cb(); });
+  }
+
+  window._monAbrirObs = function(opId, btnEl) {
+    _obsEnsurePopover();
+    _obsCurrentOpId = opId;
+
+    // Marca como vista e remove badge
+    _monObsVistas.add(opId);
+    _obsVistasSave();
+    const wrap = btnEl.closest('.mon-obs-wrap');
+    if (wrap) { const b = wrap.querySelector('.mon-obs-badge'); if (b) b.remove(); }
+
+    // Posiciona o popover perto do botão
+    const rect = btnEl.getBoundingClientRect();
+    const pop = _obsPopover;
+    pop.style.top  = (rect.bottom + 6) + 'px';
+    pop.style.left = Math.min(rect.left, window.innerWidth - 296) + 'px';
+
+    // Reseta hist
+    const hist = document.getElementById('mon-obs-hist');
+    if (hist) hist.classList.remove('open');
+
+    const op = operations.find(o => o.id === opId);
+    const d  = apontCache[opId];
+    const reportEnv = d && d.todosConfirmados;
+
+    const obsData = window._monObsCache[opId] || { texto: '', log: [] };
+
+    const textarea = document.getElementById('mon-obs-text');
+    const meta     = document.getElementById('mon-obs-meta');
+
+    if (reportEnv) {
+      textarea.value = '';
+      textarea.placeholder = 'Obs oculta — report já enviado.';
+      textarea.disabled = true;
+      meta.textContent = '';
+    } else {
+      textarea.value = obsData.texto || '';
+      textarea.disabled = false;
+      textarea.placeholder = 'Digite uma observação...';
+      if (obsData.autor && obsData.data) {
+        meta.textContent = 'Editado por ' + obsData.autor + ' às ' + obsData.data;
+      } else {
+        meta.textContent = '';
+      }
+    }
+
+    // Histórico
+    const histEl = document.getElementById('mon-obs-hist');
+    if (histEl) {
+      const log = obsData.log || [];
+      if (log.length === 0) {
+        histEl.innerHTML = '<div class="mon-obs-hist-item">Nenhum histórico ainda.</div>';
+      } else {
+        histEl.innerHTML = [...log].reverse().map(entry =>
+          `<div class="mon-obs-hist-item"><strong>${entry.autor}</strong> · ${entry.data}<br>${entry.texto}</div>`
+        ).join('');
+      }
+    }
+
+    pop.classList.add('open');
+    if (!reportEnv) textarea.focus();
+  };
+
+  window._monFecharObs = function() {
+    if (_obsPopover) _obsPopover.classList.remove('open');
+    _obsCurrentOpId = null;
+  };
+
+  window._monToggleObsHist = function() {
+    const hist = document.getElementById('mon-obs-hist');
+    if (hist) hist.classList.toggle('open');
+  };
+
+  window._monSalvarObs = function() {
+    if (!_obsCurrentOpId) return;
+    const textarea = document.getElementById('mon-obs-text');
+    const texto = (textarea.value || '').trim();
+    const nome  = monNomeUsuario() || 'Anônimo';
+    const agora = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+
+    const obs = window._monObsCache || {};
+    const anterior = obs[_obsCurrentOpId] || { texto: '', log: [] };
+    const log = anterior.log || [];
+
+    // Só loga se o texto mudou
+    if (texto !== anterior.texto && anterior.texto) {
+      log.push({ texto: anterior.texto, autor: anterior.autor || '?', data: anterior.data || '?' });
+      if (log.length > 20) log.shift(); // mantém max 20 entradas
+    }
+
+    if (texto) {
+      obs[_obsCurrentOpId] = { texto, autor: nome, data: agora, log };
+    } else {
+      // texto vazio = apaga a obs (mantém log)
+      obs[_obsCurrentOpId] = { texto: '', autor: nome, data: agora, log };
+    }
+
+    const saveBtn = _obsPopover.querySelector('.mon-obs-save');
+    saveBtn.textContent = 'Salvando…';
+    saveBtn.disabled = true;
+
+    _obsSave(obs, () => {
+      saveBtn.textContent = 'Salvo ✓';
+      setTimeout(() => { saveBtn.textContent = 'Salvar'; saveBtn.disabled = false; }, 1500);
+      // Atualiza meta
+      const meta = document.getElementById('mon-obs-meta');
+      if (meta) meta.textContent = texto ? ('Editado por ' + nome + ' às ' + agora) : '';
+      // Atualiza botão na linha
+      const btns = document.querySelectorAll('.mon-obs-btn');
+      btns.forEach(b => {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + _obsCurrentOpId + "'")) {
+          b.classList.toggle('has-obs', !!texto);
+        }
+      });
+      renderTable();
+    });
+  };
+
+  // Carrega obs na inicialização
+  _obsLoad(() => {
+    // Remove do set de vistas ops que não têm mais obs (limpas)
+    Object.keys(window._monObsCache).forEach(id => {
+      const o = window._monObsCache[id];
+      if (!o || !o.texto) _monObsVistas.delete(id);
+    });
+    _obsVistasSave();
+    if (operations.length > 0) renderTable();
+  });
 
 })();
