@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      21.0
+// @version      22.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1189,18 +1189,14 @@
     minimized = !minimized;
     if (minimized) {
       _savedPanelHeight = panel.style.height || '';
-      body.style.visibility = 'hidden';
-      body.style.height     = '0';
-      body.style.overflow   = 'hidden';
-      body.style.flexShrink = '0';
-      panel.style.height    = 'auto';
+      body.style.display  = 'none';
+      panel.style.height  = 'auto';
+      panel.style.overflow = 'visible';
       btn.innerHTML = '&#9633;';
     } else {
-      body.style.visibility = '';
-      body.style.height     = '';
-      body.style.overflow   = '';
-      body.style.flexShrink = '';
-      panel.style.height    = _savedPanelHeight || '100vh';
+      body.style.display  = '';
+      panel.style.height  = _savedPanelHeight || '100vh';
+      panel.style.overflow = 'hidden';
       btn.innerHTML = '&#8212;';
     }
   };
@@ -1346,7 +1342,7 @@
         min-height: 40px;
       }
       #mon-panel ::-webkit-scrollbar-thumb:hover { background: var(--mon-text-faint); }
-      #mon-table-wrap { scrollbar-gutter: auto; }
+      #mon-table-wrap { scrollbar-gutter: stable; }
 
       /* ── HEADER ── */
       #mon-header {
@@ -2225,9 +2221,19 @@
       <button class="mon-send-btn mon-send-btn--print" onclick="event.stopPropagation();window._monPrintApontamentos('${op.id}',this)">🖨️ Print apontamentos</button>
       <button class="mon-send-btn mon-send-btn--relatorio" onclick="event.stopPropagation();window._monGerarRelatorio('${op.id}',this)">📲 ${escalaAtualizada && d.todosConfirmados ? 'Report WhatsApp (atualizado)' : 'Report WhatsApp'}</button>
       ${temEscala ? `<button class="mon-send-btn mon-send-btn--wa-escala" onclick="event.stopPropagation();window._monGerarMsgEscala('${op.id}',this)">💬 ${escalaAtualizada ? 'Msg escala (atualizada)' : 'Msg escala WA'}</button><button class="mon-send-btn mon-send-btn--gmail" onclick="event.stopPropagation();window._monAbrirGmailEscala('${op.id}',this)" onmouseenter="(function(btn){var emails=window._monEmailsDaOpById&&window._monEmailsDaOpById('${op.id}');btn.title=emails&&emails.length?'Para: '+emails.join(', '):'⚠ Nenhum destinatário cadastrado';})(this)">${'<svg width="14" height="11" viewBox="0 0 24 18" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:4px"><path d="M0 3.6L12 11.4L24 3.6V16.8C24 17.46 23.46 18 22.8 18H1.2C0.54 18 0 17.46 0 16.8V3.6Z" fill="#EA4335"/><path d="M0 3.6L12 11.4L24 3.6" fill="#FBBC05"/><path d="M0 1.2C0 0.54 0.54 0 1.2 0H22.8C23.46 0 24 0.54 24 1.2V3.6L12 11.4L0 3.6V1.2Z" fill="#4285F4"/><path d="M0 3.6V1.2C0 0.54 0.54 0 1.2 0L12 7.8L0 3.6Z" fill="#34A853"/><path d="M24 3.6V1.2C24 0.54 23.46 0 22.8 0L12 7.8L24 3.6Z" fill="#EA4335"/></svg>'} ${escalaAtualizada ? 'Gmail (atualizado)' : 'Gmail escala'}</button>` : ''}`;
-    pdfLinks.forEach(l => {
-      html += `<a href="https://tsi-app.com/${l.href}" target="_blank" class="mon-dl-btn">📄 ${l.label || 'Assinatura'}</a>`;
-    });
+    if (pdfLinks.length === 1) {
+      html += `<button class="mon-dl-btn" onmouseenter="(function(btn){var t=window._monPdfLabelByIdx&&window._monPdfLabelByIdx('${op.id}',0);if(t)btn.title=t;})(this)" onclick="event.stopPropagation();window._monAbrirPdf('${op.id}',0)">📄 Lista p/ Assinaturas</button>`;
+    } else if (pdfLinks.length > 1) {
+      const tooltipLideres = pdfLinks.map((l, i) => (i + 1) + '. ' + (l.label || 'Líder ' + (i + 1))).join('&#10;');
+      html += `<div class="mon-xls-menu" id="pdf-menu-${op.id}">
+        <button class="mon-dl-btn" title="${tooltipLideres}" onclick="event.stopPropagation();var m=document.getElementById('pdf-menu-${op.id}');m.classList.toggle('open');var close=function(ev){if(!m.contains(ev.target)){m.classList.remove('open');document.removeEventListener('click',close);}};setTimeout(function(){document.addEventListener('click',close);},0);">📄 Assinaturas (${pdfLinks.length}) ▾</button>
+        <div class="mon-xls-dropdown">`;
+      pdfLinks.forEach((l, i) => {
+        html += `<button class="mon-dl-btn" style="width:100%;text-align:left;border:none;border-radius:0;cursor:pointer;" onclick="event.stopPropagation();document.getElementById('pdf-menu-${op.id}').classList.remove('open');window._monAbrirPdf('${op.id}',${i})">📄 ${l.label || 'Assinatura'}</button>`;
+      });
+      html += `<button class="mon-dl-btn" style="width:100%;text-align:left;border:none;border-top:1px solid var(--mon-border);border-radius:0;margin-top:3px;padding-top:6px;cursor:pointer;background:var(--mon-accent-bg);color:var(--mon-accent);font-weight:600;" onclick="event.stopPropagation();document.getElementById('pdf-menu-${op.id}').classList.remove('open');window._monMergePdfAssinaturas('${op.id}','${op.chave}',this)">📎 Mesclar tudo (${pdfLinks.length} PDFs)</button>`;
+      html += `</div></div>`;
+    }
     if (xlsLinks.length > 0) {
       html += `<div class="mon-xls-menu" id="xls-menu-${op.id}">
         <button class="mon-dl-btn" onclick="event.stopPropagation();var m=document.getElementById('xls-menu-${op.id}');m.classList.toggle('open');var close=function(ev){if(!m.contains(ev.target)){m.classList.remove('open');document.removeEventListener('click',close);}};setTimeout(function(){document.addEventListener('click',close);},0);">📊 XLS ▾</button>
@@ -2638,6 +2644,14 @@
     return monEmailsDaOp(op);
   };
 
+  // Expõe label do pdfLink para tooltip inline dos botões de assinatura
+  window._monPdfLabelByIdx = function(opId, idx) {
+    const d = apontCache[opId];
+    if (!d || d === 'loading') return '';
+    const l = (d.pdfLinks || [])[idx];
+    return l && l.label ? '👤 ' + l.label : '';
+  };
+
   // ── NOME DO USUÁRIO LOGADO ────────────────────────────────────────────────────
   function monNomeUsuario() {
     try {
@@ -2695,6 +2709,216 @@
         setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; }, 2500);
       })
       .catch(() => { prompt('Copie a mensagem:', texto); });
+  };
+
+  // ── MERGE PDF ASSINATURAS ─────────────────────────────────────────────────────
+  // ── ABRIR PDF ASSINATURA (sempre pega do cache atualizado) ───────────────────
+  window._monAbrirPdf = function(opId, idx) {
+    const d = apontCache[opId];
+    if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
+    const links = d.pdfLinks || [];
+    const l = links[idx];
+    if (!l) { alert('Link não encontrado.'); return; }
+    window.open('https://tsi-app.com/' + l.href, '_blank');
+  };
+
+  // ── MERGE PDF ASSINATURAS (sempre pega do cache atualizado) ──────────────────
+  window._monMergePdfAssinaturas = async function(opId, chave, btnEl) {
+    const d = apontCache[opId];
+    if (!d || d === 'loading') { alert('Aguarde os dados carregarem.'); return; }
+    const hrefs = (d.pdfLinks || []).map(l => l.href);
+    if (hrefs.length < 2) { alert('Menos de 2 PDFs disponíveis.'); return; }
+
+    const orig = btnEl.innerHTML;
+    btnEl.disabled = true;
+    btnEl.innerHTML = '⏳ Mesclando…';
+    try {
+      // Merger de PDF puro em JS — sem biblioteca externa.
+      // Funciona para PDFs gerados pelo mesmo sistema (estrutura simples/linear).
+      // Estratégia: baixa cada PDF, extrai as páginas via regex no xref/body,
+      // renumera objetos e monta um novo PDF com todas as páginas em sequência.
+      const enc = new TextEncoder();
+      const dec = new TextDecoder('latin1'); // PDFs são binários latin1
+
+      // Baixa todos os PDFs como ArrayBuffer
+      const buffers = [];
+      for (let i = 0; i < hrefs.length; i++) {
+        btnEl.innerHTML = `⏳ Baixando ${i + 1}/${hrefs.length}…`;
+        const url = 'https://tsi-app.com/' + hrefs[i];
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ao baixar PDF ' + (i + 1));
+        buffers.push(await resp.arrayBuffer());
+      }
+
+      btnEl.innerHTML = '⏳ Mesclando…';
+
+      // Helper: converte ArrayBuffer → string latin1
+      function buf2str(ab) {
+        const arr = new Uint8Array(ab);
+        let s = '';
+        for (let i = 0; i < arr.length; i++) s += String.fromCharCode(arr[i]);
+        return s;
+      }
+
+      // Helper: string latin1 → Uint8Array
+      function str2buf(s) {
+        const arr = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) arr[i] = s.charCodeAt(i) & 0xff;
+        return arr;
+      }
+
+      // Parseia um PDF simples e retorna { objects, pageRefs, mediaBox }
+      // onde objects é Map<id_str, raw_object_string>
+      function parsePdf(str) {
+        const objects = new Map();
+        // Captura todos os "N G obj ... endobj"
+        const objRe = /(\d+)\s+(\d+)\s+obj\s*([\s\S]*?)endobj/g;
+        let m;
+        while ((m = objRe.exec(str)) !== null) {
+          const key = m[1] + '_' + m[2];
+          objects.set(key, { id: parseInt(m[1]), gen: parseInt(m[2]), raw: m[3].trim() });
+        }
+
+        // Encontra o objeto Pages (Type /Pages) e coleta refs das páginas
+        let pageRefs = [];
+        let mediaBox = null;
+        for (const [, obj] of objects) {
+          if (/\/Type\s*\/Pages\b/.test(obj.raw)) {
+            // Extrai Kids
+            const kids = obj.raw.match(/\/Kids\s*\[([^\]]+)\]/);
+            if (kids) {
+              const refs = [...kids[1].matchAll(/(\d+)\s+\d+\s+R/g)].map(r => parseInt(r[1]));
+              pageRefs = refs;
+            }
+            // Extrai MediaBox se presente
+            const mb = obj.raw.match(/\/MediaBox\s*\[([^\]]+)\]/);
+            if (mb) mediaBox = mb[0];
+          }
+        }
+
+        return { objects, pageRefs, mediaBox };
+      }
+
+      // Parseia cada PDF
+      const pdfs = buffers.map(buf => parsePdf(buf2str(buf)));
+
+      // Calcula offset base de renumeração de objetos para cada PDF
+      // Reserva obj 1 para Catalog, obj 2 para Pages do merged
+      let nextId = 3;
+      const remaps = []; // remaps[pdfIdx] = Map<oldId, newId>
+
+      for (const pdf of pdfs) {
+        const remap = new Map();
+        for (const [, obj] of pdf.objects) {
+          remap.set(obj.id, nextId++);
+        }
+        remaps.push(remap);
+      }
+
+      // Função que reescreve referências "N G R" dentro de uma string de objeto
+      function rewriteRefs(raw, remap) {
+        return raw.replace(/(\d+)\s+(\d+)\s+R/g, (full, id, gen) => {
+          const newId = remap.get(parseInt(id));
+          return newId !== undefined ? newId + ' 0 R' : full;
+        });
+      }
+
+      // Monta corpo do PDF mesclado
+      let body = '%PDF-1.4\n';
+      const offsets = new Map(); // id → byte offset
+
+      const addObj = (id, raw) => {
+        offsets.set(id, body.length);
+        body += id + ' 0 obj\n' + raw + '\nendobj\n';
+      };
+
+      // Coleta todos os pageRefs do merged (com novos ids)
+      const allPageNewIds = [];
+      for (let pi = 0; pi < pdfs.length; pi++) {
+        const pdf = pdfs[pi];
+        const remap = remaps[pi];
+        for (const oldPageId of pdf.pageRefs) {
+          allPageNewIds.push(remap.get(oldPageId));
+        }
+      }
+
+      // Objeto Pages do merged (id=2)
+      const firstMediaBox = pdfs.find(p => p.mediaBox)?.mediaBox || '/MediaBox [0 0 595 842]';
+      addObj(2,
+        '<< /Type /Pages\n' +
+        '   /Kids [' + allPageNewIds.map(id => id + ' 0 R').join(' ') + ']\n' +
+        '   /Count ' + allPageNewIds.length + '\n' +
+        '   ' + firstMediaBox + '\n>>'
+      );
+
+      // Adiciona todos os objetos de todos os PDFs, reescrevendo refs
+      // Páginas recebem /Parent 2 0 R
+      for (let pi = 0; pi < pdfs.length; pi++) {
+        const pdf = pdfs[pi];
+        const remap = remaps[pi];
+        const pageIdSet = new Set(pdf.pageRefs);
+
+        for (const [, obj] of pdf.objects) {
+          // Pula o objeto Pages original (será substituído pelo merged)
+          if (/\/Type\s*\/Pages\b/.test(obj.raw)) continue;
+          // Pula Catalog original
+          if (/\/Type\s*\/Catalog\b/.test(obj.raw)) continue;
+
+          const newId = remap.get(obj.id);
+          let raw = rewriteRefs(obj.raw, remap);
+
+          // Se for uma página, atualiza /Parent para o Pages do merged (id=2)
+          if (pageIdSet.has(obj.id)) {
+            raw = raw.replace(/\/Parent\s+\d+\s+\d+\s+R/, '/Parent 2 0 R');
+            if (!/\/Parent/.test(raw)) {
+              // Insere /Parent se não existia
+              raw = raw.replace('<<', '<< /Parent 2 0 R');
+            }
+          }
+
+          addObj(newId, raw);
+        }
+      }
+
+      // Catalog (id=1)
+      addObj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+
+      // xref table
+      const xrefOffset = body.length;
+      const allIds = [0, ...offsets.keys()].sort((a, b) => a - b);
+      body += 'xref\n0 ' + (nextId) + '\n';
+      body += '0000000000 65535 f \n';
+      for (let id = 1; id < nextId; id++) {
+        const off = offsets.get(id);
+        if (off !== undefined) {
+          body += String(off).padStart(10, '0') + ' 00000 n \n';
+        } else {
+          body += '0000000000 65535 f \n';
+        }
+      }
+
+      // trailer
+      body += 'trailer\n<< /Size ' + nextId + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF\n';
+
+      // Download
+      const blob = new Blob([str2buf(body)], { type: 'application/pdf' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'assinaturas_' + (chave || 'merged') + '.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      btnEl.innerHTML = '✅ Baixado!';
+      btnEl.style.color = 'var(--mon-green)';
+      setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; btnEl.disabled = false; }, 2500);
+    } catch(e) {
+      console.error('[Monitor] Merge PDF erro:', e);
+      btnEl.innerHTML = '✗ Erro: ' + e.message.slice(0, 35);
+      setTimeout(() => { btnEl.innerHTML = orig; btnEl.style.color = ''; btnEl.disabled = false; }, 4000);
+    }
   };
 
   // ── GMAIL DE ESCALA ───────────────────────────────────────────────────────────
