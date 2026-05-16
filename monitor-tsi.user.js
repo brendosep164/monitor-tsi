@@ -1635,7 +1635,7 @@
         position: relative;
       }
       .mon-key-chip::after {
-        content: '\29C8  Copiar chave';
+        content: 'Copiar chave';
         position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
         background: var(--mon-surface2); color: var(--mon-text);
         border: 1px solid var(--mon-border2);
@@ -1643,7 +1643,7 @@
         white-space: nowrap; padding: 4px 9px; border-radius: var(--mon-radius-xs);
         pointer-events: none; opacity: 0; transition: opacity 0.15s;
         box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-        letter-spacing: 0;
+        letter-spacing: 0; z-index: 999999;
       }
       .mon-key-chip::before {
         content: '';
