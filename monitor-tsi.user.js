@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      22.0
+// @version      23.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1218,15 +1218,26 @@
     minimized = !minimized;
     if (minimized) {
       _savedPanelHeight = panel.style.height || '';
-      body.style.display  = 'none';
-      panel.style.height  = 'auto';
+      panel._savedTop = panel.style.top || '0px';
+      body.style.display   = 'none';
+      panel.style.height   = 'auto';
       panel.style.overflow = 'visible';
+      panel.style.top      = 'auto';
+      panel.style.bottom   = '0px';
       btn.innerHTML = '&#9633;';
     } else {
-      body.style.display  = '';
-      panel.style.height  = _savedPanelHeight || '100vh';
+      body.style.display   = '';
+      panel.style.height   = _savedPanelHeight || '100vh';
       panel.style.overflow = 'hidden';
+      panel.style.bottom   = 'auto';
+      panel.style.top      = panel._savedTop || '0px';
       btn.innerHTML = '&#8212;';
+      requestAnimationFrame(() => {
+        const wrap = document.getElementById('mon-table-wrap');
+        if (wrap) { wrap.style.overflowY = 'auto'; }
+        const mbody = document.getElementById('mon-body');
+        if (mbody) { mbody.style.overflow = 'hidden'; mbody.style.flex = '1'; }
+      });
     }
   };
 
@@ -1236,7 +1247,7 @@
     if (window.self !== window.top) return;
     const btn = document.createElement('button');
     btn.id = 'btn-mon';
-    btn.innerHTML = `<span class="mon-fab-dot"></span> Monitor`;
+    btn.innerHTML = `<span class="mon-fab-radar"><span class="mon-fab-radar-dot"></span><span class="mon-fab-radar-ring"></span><span class="mon-fab-radar-ring mon-fab-radar-ring2"></span></span> Monitor`;
     btn.onclick = toggleMonitor;
     document.body.appendChild(btn);
   }
@@ -1273,6 +1284,9 @@
         --mon-blue:        #1d4ed8;
         --mon-blue-bg:     rgba(29,78,216,0.09);
         --mon-blue-border: rgba(29,78,216,0.28);
+        --mon-indigo:      #4338ca;
+        --mon-indigo-bg:   rgba(67,56,202,0.1);
+        --mon-indigo-border:rgba(67,56,202,0.28);
         --mon-accent:      #4338ca;
         --mon-accent-bg:   rgba(67,56,202,0.1);
         --mon-accent-border:rgba(67,56,202,0.28);
@@ -1319,27 +1333,44 @@
       /* ── BOTÃO FLUTUANTE ── */
       #btn-mon {
         position: fixed; bottom: 24px; right: 24px; z-index: 99999;
-        display: flex; align-items: center; gap: 8px;
-        background: var(--mon-accent);
+        display: flex; align-items: center; gap: 9px;
+        background: #1b2333;
         color: #fff;
         border: none;
-        padding: 10px 20px; border-radius: 99px;
+        padding: 11px 20px; border-radius: 99px;
         font-size: 13px; font-family: var(--mon-font);
-        font-weight: 600; cursor: pointer; letter-spacing: 0.2px;
-        box-shadow: 0 4px 20px rgba(79,70,229,0.35), 0 1px 4px rgba(79,70,229,0.2);
+        font-weight: 600; cursor: pointer; letter-spacing: 0.3px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.2);
         transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
       }
       #btn-mon:hover {
-        background: #4338ca;
-        box-shadow: 0 6px 28px rgba(79,70,229,0.45);
+        background: #263147;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         transform: translateY(-1px);
       }
       #btn-mon:active { transform: translateY(0); }
-      .mon-fab-dot {
-        width: 7px; height: 7px; border-radius: 50%;
-        background: #a5f3b8;
-        display: inline-block;
-        animation: mon-pulse-dot 2s ease-in-out infinite;
+      .mon-fab-radar {
+        position: relative; width: 18px; height: 18px; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .mon-fab-radar-dot {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%,-50%);
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #34d399; z-index: 1;
+      }
+      .mon-fab-radar-ring {
+        position: absolute; top: 50%; left: 50%;
+        width: 18px; height: 18px; border-radius: 50%;
+        border: 1.5px solid #34d399;
+        transform: translate(-50%,-50%) scale(0);
+        animation: mon-radar-pulse 2s ease-out infinite;
+        opacity: 0;
+      }
+      .mon-fab-radar-ring2 { animation-delay: 0.7s; }
+      @keyframes mon-radar-pulse {
+        0%   { transform: translate(-50%,-50%) scale(0); opacity: 0.8; }
+        100% { transform: translate(-50%,-50%) scale(1.9); opacity: 0; }
       }
 
       /* ── PAINEL PRINCIPAL ── */
@@ -1568,7 +1599,7 @@
       #mon-table thead th.center { text-align: center; }
 
       /* ── ROWS ── */
-      tr.op-row {
+      tr.op-row { border-left: 3px solid transparent;
         border-bottom: 1px solid var(--mon-border);
         cursor: pointer;
         transition: background 0.1s;
@@ -1608,7 +1639,7 @@
       /* ── PROGRESS BADGE ── */
       .mon-prog-cell { text-align: center; }
       .mon-prog-num {
-        font-size: 13px; font-weight: 700; letter-spacing: -0.3px;
+        font-size: 16px; font-weight: 700; letter-spacing: -0.3px;
       }
       .mon-prog-bar {
         height: 3px; background: var(--mon-surface3); border-radius: 2px;
@@ -1625,8 +1656,8 @@
       /* ── STATUS BADGES ── */
       .mon-status-badge {
         display: inline-flex; align-items: center; gap: 4px;
-        padding: 3px 9px; border-radius: 99px;
-        font-size: 11px; font-weight: 600; letter-spacing: 0.1px;
+        padding: 5px 12px; border-radius: 99px;
+        font-size: 13px; font-weight: 700; letter-spacing: 0.1px;
         white-space: nowrap; border: 1px solid transparent;
       }
       .mon-status-badge.completo  { color: var(--mon-green); background: var(--mon-green-bg); border-color: var(--mon-green-border); }
@@ -1702,8 +1733,8 @@
         font-size: 20px; font-weight: 700; letter-spacing: -0.5px;
       }
       .mon-stat-card-sub {
-        font-size: 12px; color: var(--mon-text-faint);
-        font-weight: 400; margin-left: 1px;
+        font-size: 13px; color: var(--mon-text-dim);
+        font-weight: 500; margin-left: 1px;
       }
       .mon-stat-card-pct { font-size: 10px; color: var(--mon-text-faint); margin-top: 6px; }
 
@@ -1951,7 +1982,7 @@
             </svg>
           </div>
           <button class="mon-icon-btn" id="mon-min-btn" onclick="window._monMinimize()" title="Minimizar">&#8212;</button>
-          <button class="mon-icon-btn" onclick="document.getElementById('mon-panel').style.display='none';document.getElementById('btn-mon').innerHTML='<span class=mon-fab-dot></span> Monitor'" title="Fechar">&#10005;</button>
+          <button class="mon-icon-btn" onclick="document.getElementById('mon-panel').style.display='none';document.getElementById('btn-mon').innerHTML='<span class=mon-fab-radar><span class=mon-fab-radar-dot></span><span class=mon-fab-radar-ring></span><span class=\"mon-fab-radar-ring mon-fab-radar-ring2\"></span></span> Monitor'" title="Fechar">&#10005;</button>
         </div>
       </div>
 
@@ -2028,12 +2059,12 @@
   function colorForPct(pct) {
     if (pct >= 100) return 'var(--mon-green)';
     if (pct > 0)    return 'var(--mon-indigo)';
-    return 'var(--mon-text-faint)';
+    return 'var(--mon-red)';
   }
   function colorForAptPct(pct) {
     if (pct >= 100) return 'var(--mon-green)';
     if (pct > 0)    return 'var(--mon-amber)';
-    return 'var(--mon-text-faint)';
+    return 'var(--mon-red)';
   }
 
   function escaladoBadge(d, qtd) {
@@ -2042,7 +2073,7 @@
     const cor = colorForPct(pct);
     return `
       <div class="mon-prog-cell">
-        <div class="mon-prog-num" style="color:${cor}">${d.escalado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${qtd}</span></div>
+        <div class="mon-prog-num" style="color:${cor}">${d.escalado}<span style="color:var(--mon-text-dim);font-size:12px;font-weight:500">/${qtd}</span></div>
         <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${pct}%;background:${cor}"></div></div>
       </div>`;
   }
@@ -2053,7 +2084,7 @@
     const cor = colorForAptPct(pct);
     return `
       <div class="mon-prog-cell">
-        <div class="mon-prog-num" style="color:${cor}">${d.apontado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${qtd}</span></div>
+        <div class="mon-prog-num" style="color:${cor}">${d.apontado}<span style="color:var(--mon-text-dim);font-size:12px;font-weight:500">/${qtd}</span></div>
         <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${pct}%;background:${cor}"></div></div>
       </div>`;
   }
@@ -2066,11 +2097,11 @@
 
   function escBarraBadge(escalado, solicitado, cor, bgCor) {
     const pct = solicitado > 0 ? Math.min(100, Math.round((escalado / solicitado) * 100)) : 0;
-    return `<div style="display:inline-flex;align-items:center;gap:5px;min-width:80px">
-      <div style="flex:1;height:4px;background:var(--mon-surface3);border-radius:2px;overflow:hidden;min-width:36px">
-        <div style="height:100%;width:${pct}%;background:${cor};border-radius:2px"></div>
+    return `<div style="display:inline-flex;align-items:center;gap:6px;min-width:90px">
+      <div style="flex:1;height:6px;background:var(--mon-surface3);border-radius:3px;overflow:hidden;min-width:40px">
+        <div style="height:100%;width:${pct}%;background:${cor};border-radius:3px"></div>
       </div>
-      <span style="font-size:10px;font-weight:600;color:${cor};background:${bgCor};padding:1px 6px;border-radius:99px;white-space:nowrap">${escalado}/${solicitado}</span>
+      <span style="font-size:12px;font-weight:700;color:${cor};background:${bgCor};padding:2px 8px;border-radius:99px;white-space:nowrap">${escalado}/${solicitado}</span>
     </div>`;
   }
 
@@ -2158,9 +2189,20 @@
         return txt.replace(new RegExp('(' + q + ')', 'gi'), '<mark style="background:rgba(129,140,248,0.3);color:var(--mon-indigo);border-radius:2px">$1</mark>');
       };
 
+      // Borda lateral de status
+      const _nenhum  = temDados && d.escalado === 0 && d.apontado === 0;
+      const _escOk   = temDados && d.escalado >= d.solicitado;
+      const _aptOk   = temDados && d.apontado >= d.solicitado;
+      const _bordaCor = !temDados ? 'transparent'
+        : (_nenhum)          ? 'var(--mon-red)'
+        : (_aptOk && _escOk) ? 'var(--mon-green)'
+        : (!_escOk)          ? 'var(--mon-amber)'
+        : 'var(--mon-blue)';
+
       const tr = document.createElement('tr');
       tr.className = 'op-row' + (isExp ? ' is-expanded' : '');
       tr.dataset.chave = op.chave;
+      tr.style.borderLeft = '3px solid ' + _bordaCor;
 
       tr.innerHTML = `
         <td><span class="mon-chave" title="${op.chave}">${hl(op.chave)}</span></td>
@@ -2169,7 +2211,7 @@
           ${op.id
             ? (temDados
                 ? `<div class="mon-prog-cell">
-                     <div class="mon-prog-num" style="color:${escCor}">${d.escalado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${op.qtd}</span></div>
+                     <div class="mon-prog-num" style="color:${escCor}">${d.escalado}<span style="color:var(--mon-text-dim);font-size:12px;font-weight:500">/${op.qtd}</span></div>
                      <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${escPct}%;background:${escCor}"></div></div>
                    </div>`
                 : `<span class="mon-prog-pending">…/${op.qtd}</span>`)
@@ -2179,7 +2221,7 @@
           ${emJanela
             ? (temDados
                 ? `<div class="mon-prog-cell">
-                     <div class="mon-prog-num" style="color:${aptCor}">${d.apontado}<span style="color:var(--mon-text-faint);font-size:10px;font-weight:400">/${op.qtd}</span></div>
+                     <div class="mon-prog-num" style="color:${aptCor}">${d.apontado}<span style="color:var(--mon-text-dim);font-size:12px;font-weight:500">/${op.qtd}</span></div>
                      <div class="mon-prog-bar"><div class="mon-prog-fill" style="--bar-w:${aptPct}%;background:${aptCor}"></div></div>
                    </div>`
                 : `<span class="mon-prog-pending">…/${op.qtd}</span>`)
@@ -2446,12 +2488,13 @@
     if (!document.getElementById('mon-panel')) createPanel();
     const p   = document.getElementById('mon-panel');
     const btn = document.getElementById('btn-mon');
+    const RADAR_HTML = '<span class="mon-fab-radar"><span class="mon-fab-radar-dot"></span><span class="mon-fab-radar-ring"></span><span class="mon-fab-radar-ring mon-fab-radar-ring2"></span></span> Monitor';
     if (p.style.display === 'none' || !p.style.display) {
       p.style.display = 'flex'; p.style.flexDirection = 'column';
-      btn.innerHTML = '<span class="mon-fab-dot"></span> Monitor';
+      btn.innerHTML = RADAR_HTML;
     } else {
       p.style.display = 'none';
-      btn.innerHTML = '<span class="mon-fab-dot"></span> Monitor';
+      btn.innerHTML = RADAR_HTML;
     }
   }
 
