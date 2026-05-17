@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      24.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -3092,6 +3092,16 @@
     return dd + '/' + mm + '/' + d.getFullYear();
   }
 
+  // Extrai a data da chave da operação (ex: SRRDHL17052026... → "17/05/2026")
+  // Fallback para monDataHoje() se a chave não tiver data válida
+  function monDataDaOp(op) {
+    if (op && op.chave) {
+      const m = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
+      if (m) return m[1] + '/' + m[2] + '/' + m[3];
+    }
+    return monDataHoje();
+  }
+
   function monHoraFormatada(hora) {
     if (!hora) return '';
     return hora.replace(':', 'h').replace(/h00$/, 'h');
@@ -3109,7 +3119,7 @@
     if (!op) return;
 
     const atualizada = d && d !== 'loading' && d.listaEnviada === true;
-    const data       = monDataHoje();
+    const data       = monDataDaOp(op);
     const hora       = monHoraFormatada(op.hora);
     const saudacao   = monSaudacao();
 
@@ -3362,7 +3372,7 @@
     if (!op) return;
 
     const atualizada  = d && d !== 'loading' && d.listaEnviada === true;
-    const data        = monDataHoje();
+    const data        = monDataDaOp(op);
     const horaExib    = monHoraFormatada(op.hora);
     const horaAssunto = monHoraAssunto(op.hora);
     const nome        = monNomeUsuario();
