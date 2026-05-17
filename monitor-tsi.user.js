@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      40.0
+// @version      41.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -3841,7 +3841,7 @@
   }
 
   function _faltasGerarTexto() {
-    const lista = _faltasFiltradas().filter(r => r.faltas > 0);
+    const lista = _sortLista(_faltasFiltradas().filter(r => r.faltas > 0));
     if (lista.length === 0) return '';
 
     // Datas únicas dos registros filtrados, ordenadas
@@ -3870,10 +3870,19 @@
     return linhas.join('\n');
   }
 
+  function _sortLista(lista) {
+    const toISO = s => { const p = (s||'').split('/'); return p.length === 3 ? p[2]+'-'+p[1]+'-'+p[0] : ''; };
+    return [...lista].sort((a, b) => {
+      const dtA = (toISO(a.dataOp||'') + 'T' + (a.hora && a.hora !== '—' ? a.hora : '00:00'));
+      const dtB = (toISO(b.dataOp||'') + 'T' + (b.hora && b.hora !== '—' ? b.hora : '00:00'));
+      return dtA.localeCompare(dtB);
+    });
+  }
+
   function _faltasRenderModal() {
     const body = document.getElementById('mon-faltas-body');
     if (!body) return;
-    const lista = _faltasFiltradas().filter(r => r.faltas > 0);
+    const lista = _sortLista(_faltasFiltradas().filter(r => r.faltas > 0));
     const totalFaltas = lista.reduce((s, r) => s + r.faltas, 0);
 
     if (lista.length === 0) {
