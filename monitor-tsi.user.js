@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      30.0
+// @version      31.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -2372,13 +2372,13 @@
               <button onclick="window._monFecharFaltas()" style="width:28px;height:28px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
             </div>
           </div>
-          <div style="padding:10px 14px;background:var(--mon-surface);border-bottom:1px solid var(--mon-border);display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Horário da chave:</span>
-            <input id="mon-faltas-ini" type="text" placeholder="00:00" style="width:64px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+          <div style="padding:10px 14px;background:var(--mon-surface);border-bottom:1px solid var(--mon-border);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Data:</span>
+            <input id="mon-faltas-data-ini" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
             <span style="font-size:11px;color:var(--mon-text-faint)">até</span>
-            <input id="mon-faltas-fim" type="text" placeholder="23:59" style="width:64px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+            <input id="mon-faltas-data-fim" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
             <button onclick="window._monFiltrarFaltas()" style="height:26px;padding:0 12px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--mon-font)">Filtrar</button>
-            <button onclick="document.getElementById('mon-faltas-ini').value='';document.getElementById('mon-faltas-fim').value='';window._monFiltrarFaltas();" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:12px;cursor:pointer;font-family:var(--mon-font)">Limpar</button>
+            <button onclick="document.getElementById('mon-faltas-data-ini').value='';document.getElementById('mon-faltas-data-fim').value='';window._monFiltrarFaltas();" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:12px;cursor:pointer;font-family:var(--mon-font)">Limpar</button>
           </div>
           <div id="mon-faltas-body" style="flex:1;overflow-y:auto;padding:12px 14px;min-height:80px"></div>
           <div style="padding:10px 14px;border-top:1px solid var(--mon-border);background:var(--mon-surface);flex-shrink:0">
@@ -3748,15 +3748,17 @@
   };
 
   function _faltasFiltradas() {
-    const ini = (document.getElementById('mon-faltas-ini') || {}).value || '';
-    const fim = (document.getElementById('mon-faltas-fim') || {}).value || '';
+    const iniVal = (document.getElementById('mon-faltas-data-ini') || {}).value || '';
+    const fimVal = (document.getElementById('mon-faltas-data-fim') || {}).value || '';
     const registros = Object.values(_faltasCache);
-    if (!ini && !fim) return registros;
+    if (!iniVal && !fimVal) return registros;
+    // Converte DD/MM/YYYY para YYYY-MM-DD para comparação
+    const toISO = s => { const [d,m,a] = s.split('/'); return a + '-' + m + '-' + d; };
     return registros.filter(r => {
-      const h = r.hora && r.hora !== '—' ? r.hora : null;
-      if (!h) return true;
-      if (ini && h < ini) return false;
-      if (fim && h > fim) return false;
+      if (!r.dataOp) return true;
+      const dataR = toISO(r.dataOp);
+      if (iniVal && dataR < iniVal) return false;
+      if (fimVal && dataR > fimVal) return false;
       return true;
     });
   }
@@ -3765,23 +3767,14 @@
     const lista = _faltasFiltradas().filter(r => r.faltas > 0);
     if (lista.length === 0) return '';
 
-    // Calcula intervalo de datas com base no horário do filtro e data do sistema
-    const ini = (document.getElementById('mon-faltas-ini') || {}).value || '';
-    const fim = (document.getElementById('mon-faltas-fim') || {}).value || '';
-    const hoje = new Date();
-    const dd = d => String(d.getDate()).padStart(2,'0');
-    const mm = d => String(d.getMonth()+1).padStart(2,'0');
-    const aaaa = d => d.getFullYear();
-    const fmt = d => dd(d) + '/' + mm(d) + '/' + aaaa(d);
-    let datasStr;
-    if (ini && fim && fim < ini) {
-      // Cruza meia-noite: início = hoje, fim = amanhã
-      const amanha = new Date(hoje);
-      amanha.setDate(amanha.getDate() + 1);
-      datasStr = fmt(hoje) + ' - ' + fmt(amanha);
-    } else {
-      datasStr = fmt(hoje);
-    }
+    // Datas únicas dos registros filtrados, ordenadas
+    const datasUnicas = [...new Set(lista.map(r => r.dataOp))].sort((a, b) => {
+      const toISO = s => { const [d,m,y] = s.split('/'); return y+'-'+m+'-'+d; };
+      return toISO(a).localeCompare(toISO(b));
+    });
+    const datasStr = datasUnicas.length > 1
+      ? datasUnicas[0] + ' - ' + datasUnicas[datasUnicas.length - 1]
+      : datasUnicas[0];
 
     const totalFaltas = lista.reduce((s, r) => s + r.faltas, 0);
     const sep = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
