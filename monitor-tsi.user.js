@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      24.0
+// @version      25.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -683,11 +683,9 @@
       ? d.lideres
       : (op.liderCompleto ? [op.liderCompleto] : (op.lider ? [op.lider] : ['—']));
 
-    // Data de hoje
-    const hoje = new Date();
-    const dia  = String(hoje.getDate()).padStart(2,'0');
-    const mes  = String(hoje.getMonth()+1).padStart(2,'0');
-    const ano  = hoje.getFullYear();
+    // Data da operação (extraída da chave; fallback para hoje)
+    const _dataOp = monDataDaOp(op).split('/');
+    const dia = _dataOp[0], mes = _dataOp[1], ano = _dataOp[2];
 
     // Nome completo do líder: prioriza liderCompleto, fallback para lider
     const lideresCompletos = lideres.map(l => {
