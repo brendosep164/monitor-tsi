@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      28.0
+// @version      30.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -171,7 +171,7 @@
     // Extrai data da chave (formato: SIGLA + DDMMAA + resto)
     // Ex: SRRDHL170520268600 → dia=17, mes=05, ano=2026
     if (op.chave) {
-      const matchData = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
+      const matchData = op.chave.match(/(\d{2})(\d{2})(\d{4})\d{4}$/);
       if (matchData) {
         const dia = parseInt(matchData[1]);
         const mes = parseInt(matchData[2]) - 1;
@@ -663,6 +663,15 @@
               clearTimeout(safetyTimer);
               btnEl.innerHTML = '✓ Enviado!';
               btnEl.style.opacity = '1';
+              // ── Registra faltas usando lógica do WhatsApp (dist <= 1km) ──
+              const _op = operations.find(o => o.id === opId);
+              if (_op) {
+                const _d = apontCache[opId];
+                if (_d && _d !== 'loading') {
+                  const _entregues = (_d.colaboradores || []).filter(c => c.dist === 0 || c.dist <= 1);
+                  _faltasRegistrar(_op, _entregues.length);
+                }
+              }
               setTimeout(() => window.location.reload(), 1500);
             }, 500);
           }, 50);
@@ -677,9 +686,9 @@
     const op = operations.find(o => o.id === opId);
     if (!op) return;
 
-    // Colaboradores entregues = apontados com dist <= 2km
+    // Colaboradores entregues = apontados com dist <= 1km
     // dist=0 significa que não encontrou dado de distância — conta normalmente
-    const entregues = (d.colaboradores || []).filter(c => c.dist === 0 || c.dist <= 2);
+    const entregues = (d.colaboradores || []).filter(c => c.dist === 0 || c.dist <= 1);
     const entregueCount = entregues.length;
 
     // Líderes: prioridade = lideres da escala; fallback = op.liderCompleto ou op.lider
@@ -2240,6 +2249,9 @@
             <span class="mon-status-dot"></span>
             <span>Offline</span>
           </span>
+          <button id="mon-faltas-btn" class="mon-hdr-btn" onclick="window._monAbrirFaltas()" title="Ver relatório de faltas" style="color:var(--mon-red);border-color:rgba(220,38,38,0.3);background:var(--mon-red-bg)">
+            📋 Faltas
+          </button>
           <button class="mon-hdr-btn mon-hdr-btn--green" onclick="window._monRefresh()" title="Atualizar tudo agora">
             ↻ Atualizar
           </button>
@@ -2344,6 +2356,42 @@
         </div>`;
       bm.addEventListener('click', e => { if (e.target === bm) window._monFecharBio(); });
       document.body.appendChild(bm);
+    }
+
+    // ── MODAL FALTAS ───────────────────────────────────────────────────────────
+    if (!document.getElementById('mon-faltas-modal')) {
+      const fm = document.createElement('div');
+      fm.id = 'mon-faltas-modal';
+      fm.style.cssText = 'display:none;position:fixed;inset:0;z-index:999999;align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.5);padding:12px;';
+      fm.innerHTML = `
+        <div id="mon-faltas-box" style="background:var(--mon-bg);border-radius:10px;width:520px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;animation:mon-fadein 0.18s ease;box-shadow:0 8px 40px rgba(0,0,0,0.5)">
+          <div style="background:var(--mon-surface);border-bottom:1px solid var(--mon-border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+            <span style="font-size:14px;font-weight:700;color:var(--mon-text)">📋 Relatório de Faltas</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button onclick="window._monLimparFaltas()" style="height:28px;padding:0 10px;border-radius:5px;border:1px solid rgba(220,38,38,0.3);background:var(--mon-red-bg);color:var(--mon-red);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mon-font)">🗑 Limpar faltas</button>
+              <button onclick="window._monFecharFaltas()" style="width:28px;height:28px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+            </div>
+          </div>
+          <div style="padding:10px 14px;background:var(--mon-surface);border-bottom:1px solid var(--mon-border);display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Horário da chave:</span>
+            <input id="mon-faltas-ini" type="text" placeholder="00:00" style="width:64px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+            <span style="font-size:11px;color:var(--mon-text-faint)">até</span>
+            <input id="mon-faltas-fim" type="text" placeholder="23:59" style="width:64px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+            <button onclick="window._monFiltrarFaltas()" style="height:26px;padding:0 12px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--mon-font)">Filtrar</button>
+            <button onclick="document.getElementById('mon-faltas-ini').value='';document.getElementById('mon-faltas-fim').value='';window._monFiltrarFaltas();" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:12px;cursor:pointer;font-family:var(--mon-font)">Limpar</button>
+          </div>
+          <div id="mon-faltas-body" style="flex:1;overflow-y:auto;padding:12px 14px;min-height:80px"></div>
+          <div style="padding:10px 14px;border-top:1px solid var(--mon-border);background:var(--mon-surface);flex-shrink:0">
+            <div style="font-size:11px;font-weight:600;color:var(--mon-text-faint);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">Relatório para copiar</div>
+            <pre id="mon-faltas-pre" style="font-size:11px;color:var(--mon-text-dim);font-family:var(--mon-mono);white-space:pre-wrap;background:var(--mon-surface2);border:1px solid var(--mon-border);border-radius:6px;padding:8px 10px;margin:0 0 8px;max-height:160px;overflow-y:auto;line-height:1.5"></pre>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span id="mon-faltas-total" style="font-size:12px;font-weight:600;color:var(--mon-red)"></span>
+              <button onclick="window._monCopiarFaltas(this)" style="height:30px;padding:0 16px;border-radius:5px;border:none;background:var(--mon-green);color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mon-font)">📋 Copiar</button>
+            </div>
+          </div>
+        </div>`;
+      fm.addEventListener('click', e => { if (e.target === fm) window._monFecharFaltas(); });
+      document.body.appendChild(fm);
     }
   }
 
@@ -2803,7 +2851,7 @@
       // Calcula tempo restante para exibir no header
       const _tempoRestante = (() => {
         if (!op.chave) return '';
-        const matchD = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
+        const matchD = op.chave.match(/(\d{2})(\d{2})(\d{4})\d{4}$/);
         if (!matchD) return '';
         const [hh, mm] = (op.hora || '').split(':').map(Number);
         if (isNaN(hh)) return '';
@@ -3264,7 +3312,7 @@
   // Fallback para monDataHoje() se a chave não tiver data válida
   function monDataDaOp(op) {
     if (op && op.chave) {
-      const m = op.chave.match(/[A-Za-z]+(\d{2})(\d{2})(\d{4})\d+/);
+      const m = op.chave.match(/(\d{2})(\d{2})(\d{4})\d{4}$/);
       if (m) return m[1] + '/' + m[2] + '/' + m[3];
     }
     return monDataHoje();
@@ -3598,6 +3646,199 @@
   const _MON_OBS_BIN_ID  = '69dd9cfa36566621a8ae40e1';
   const _MON_OBS_BIN_KEY = '$2a$10$re7SEj86dL3mQnxKBMLFvu7f566NmQucI1RwyW5t9tfYCrCQUExt.';
   const _MON_OBS_BIN_URL = 'https://api.jsonbin.io/v3/b/' + _MON_OBS_BIN_ID;
+
+  // ── FALTAS BIN (JSONBin separado, compartilhado) ──────────────────────────────
+  const _MON_FALTAS_BIN_ID  = '69dd9cfa36566621a8ae40e1';
+  const _MON_FALTAS_BIN_KEY = '$2a$10$re7SEj86dL3mQnxKBMLFvu7f566NmQucI1RwyW5t9tfYCrCQUExt.';
+  const _MON_FALTAS_BIN_URL = 'https://api.jsonbin.io/v3/b/' + _MON_FALTAS_BIN_ID;
+
+  let _faltasCache = {}; // { chave: { ...registro } }
+
+  function _faltasLoad(cb) {
+    fetch(_MON_FALTAS_BIN_URL + '/latest', { headers: { 'X-Master-Key': _MON_FALTAS_BIN_KEY } })
+      .then(r => r.json())
+      .then(j => {
+        _faltasCache = (j.record && j.record.faltas) ? j.record.faltas : {};
+        _faltasAtualizarBotao();
+        if (cb) cb(_faltasCache);
+      })
+      .catch(() => { if (cb) cb(_faltasCache); });
+  }
+
+  function _faltasSave(faltas, cb) {
+    _faltasCache = faltas;
+    _faltasAtualizarBotao();
+    fetch(_MON_FALTAS_BIN_URL + '/latest', { headers: { 'X-Master-Key': _MON_FALTAS_BIN_KEY } })
+      .then(r => r.json())
+      .then(j => {
+        const rec = j.record || {};
+        rec.faltas = faltas;
+        return fetch(_MON_FALTAS_BIN_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': _MON_FALTAS_BIN_KEY },
+          body: JSON.stringify(rec)
+        });
+      })
+      .then(() => { if (cb) cb(); })
+      .catch(() => { if (cb) cb(); });
+  }
+
+  function _faltasAtualizarBotao() {
+    const btn = document.getElementById('mon-faltas-btn');
+    if (!btn) return;
+    const total = Object.values(_faltasCache).reduce((s, r) => s + (r.faltas || 0), 0);
+    btn.textContent = total > 0 ? '📋 Faltas (' + total + ')' : '📋 Faltas';
+  }
+
+  function _faltasRegistrar(op, entregueCount) {
+    const nome = monNomeUsuario() || 'Anônimo';
+    const agora = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const dataOp = monDataDaOp(op);
+    const d = apontCache[op.id];
+    const escalado = (d && d.escalado != null) ? d.escalado : op.qtd;
+    const faltas = Math.max(0, escalado - entregueCount);
+    if (faltas === 0) return; // sem falta, não registra
+    const registro = {
+      chave: op.chave,
+      hora: op.hora || '—',
+      dataOp,
+      solicitado: op.qtd,
+      escalado,
+      entregue: entregueCount,
+      faltas,
+      registradoEm: agora,
+      registradoPor: nome
+    };
+    const novasFaltas = Object.assign({}, _faltasCache, { [op.chave]: registro });
+    _faltasSave(novasFaltas);
+  }
+
+  window._monAbrirFaltas = function() {
+    _faltasLoad(() => _faltasRenderModal());
+    const modal = document.getElementById('mon-faltas-modal');
+    if (modal) { modal.style.display = 'flex'; _faltasRenderModal(); }
+  };
+
+  window._monFecharFaltas = function() {
+    const modal = document.getElementById('mon-faltas-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window._monLimparFaltas = function() {
+    if (!confirm('Limpar todos os registros de faltas? Isso afeta todos os usuários.')) return;
+    _faltasSave({}, () => {
+      _faltasRenderModal();
+    });
+  };
+
+  window._monFiltrarFaltas = function() {
+    _faltasRenderModal();
+  };
+
+  window._monCopiarFaltas = function(btnEl) {
+    const texto = _faltasGerarTexto();
+    if (!texto) { alert('Nenhuma falta para copiar.'); return; }
+    navigator.clipboard.writeText(texto)
+      .then(() => {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '✅ Copiado!';
+        setTimeout(() => { btnEl.innerHTML = orig; }, 2500);
+      })
+      .catch(() => { prompt('Copie o relatório:', texto); });
+  };
+
+  function _faltasFiltradas() {
+    const ini = (document.getElementById('mon-faltas-ini') || {}).value || '';
+    const fim = (document.getElementById('mon-faltas-fim') || {}).value || '';
+    const registros = Object.values(_faltasCache);
+    if (!ini && !fim) return registros;
+    return registros.filter(r => {
+      const h = r.hora && r.hora !== '—' ? r.hora : null;
+      if (!h) return true;
+      if (ini && h < ini) return false;
+      if (fim && h > fim) return false;
+      return true;
+    });
+  }
+
+  function _faltasGerarTexto() {
+    const lista = _faltasFiltradas().filter(r => r.faltas > 0);
+    if (lista.length === 0) return '';
+
+    // Calcula intervalo de datas com base no horário do filtro e data do sistema
+    const ini = (document.getElementById('mon-faltas-ini') || {}).value || '';
+    const fim = (document.getElementById('mon-faltas-fim') || {}).value || '';
+    const hoje = new Date();
+    const dd = d => String(d.getDate()).padStart(2,'0');
+    const mm = d => String(d.getMonth()+1).padStart(2,'0');
+    const aaaa = d => d.getFullYear();
+    const fmt = d => dd(d) + '/' + mm(d) + '/' + aaaa(d);
+    let datasStr;
+    if (ini && fim && fim < ini) {
+      // Cruza meia-noite: início = hoje, fim = amanhã
+      const amanha = new Date(hoje);
+      amanha.setDate(amanha.getDate() + 1);
+      datasStr = fmt(hoje) + ' - ' + fmt(amanha);
+    } else {
+      datasStr = fmt(hoje);
+    }
+
+    const totalFaltas = lista.reduce((s, r) => s + r.faltas, 0);
+    const sep = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+    const linhas = [
+      '📋 *RELATÓRIO DE FALTAS* 📋',
+      '📅 *' + datasStr + '*',
+      ''
+    ];
+    lista.forEach(r => {
+      const qtd = r.faltas === 1 ? '01 falta' : String(r.faltas).padStart(2,'0') + ' faltas';
+      linhas.push('❌ *' + r.chave + '*');
+      linhas.push('└➤ *' + qtd + '* por desistência sem reposição');
+      linhas.push(sep);
+    });
+    linhas.push('➡️ *TOTAL: ' + String(totalFaltas).padStart(2,'0') + ' FALTA' + (totalFaltas !== 1 ? 'S' : '') + '*');
+    return linhas.join('\n');
+  }
+
+  function _faltasRenderModal() {
+    const body = document.getElementById('mon-faltas-body');
+    if (!body) return;
+    const lista = _faltasFiltradas().filter(r => r.faltas > 0);
+    const totalFaltas = lista.reduce((s, r) => s + r.faltas, 0);
+
+    if (lista.length === 0) {
+      body.innerHTML = '<div style="text-align:center;padding:32px;color:var(--mon-text-faint);font-size:13px">Nenhuma falta registrada.</div>';
+      const pre = document.getElementById('mon-faltas-pre');
+      if (pre) pre.textContent = '';
+      const tot = document.getElementById('mon-faltas-total');
+      if (tot) tot.textContent = '';
+      return;
+    }
+
+    // Cards
+    body.innerHTML = lista.map(r => {
+      const badge = r.faltas === 1
+        ? '<span style="background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));color:var(--mon-red);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap">01 falta</span>'
+        : '<span style="background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));color:var(--mon-red);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap">' + String(r.faltas).padStart(2,'0') + ' faltas</span>';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--mon-surface);border:1px solid var(--mon-border);border-radius:7px;margin-bottom:5px">
+        <span style="color:var(--mon-red);font-size:15px">❌</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--mon-text)">${r.chave} <span style="background:var(--mon-surface2);border:1px solid var(--mon-border);color:var(--mon-text-dim);border-radius:99px;padding:1px 7px;font-size:11px;font-weight:500">${r.hora}</span></div>
+          <div style="font-size:11px;color:var(--mon-text-faint);margin-top:2px">${r.registradoEm} · ${r.registradoPor} &nbsp;·&nbsp; Sol: ${r.solicitado} · Entregue: ${r.entregue}</div>
+        </div>
+        ${badge}
+      </div>`;
+    }).join('');
+
+    // Bloco texto
+    const pre = document.getElementById('mon-faltas-pre');
+    if (pre) pre.textContent = _faltasGerarTexto();
+    const tot = document.getElementById('mon-faltas-total');
+    if (tot) tot.textContent = String(totalFaltas).padStart(2,'0') + ' falta' + (totalFaltas !== 1 ? 's' : '') + ' no total';
+  }
+
+  // Carrega faltas na inicialização
+  _faltasLoad();
 
   // Cria popover no DOM (uma vez)
   function _obsEnsurePopover() {
