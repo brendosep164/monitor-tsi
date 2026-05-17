@@ -479,7 +479,11 @@
                     const distRaw = cells[10]?.textContent?.trim() || '';
                     const distMatch = distRaw.match(/([\d.,]+)\s*km/i);
                     const distNum = distMatch ? parseFloat(distMatch[1].replace(',', '.')) : 0;
-                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio, dist: distNum });
+                    // Captura onclick do botão "Visualizar Biometria"
+                    let bioOnclick = '';
+                    const bioA = row.querySelector('a[onclick*="VerBiometria"]');
+                    if (bioA) bioOnclick = bioA.getAttribute('onclick') || '';
+                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio, dist: distNum, latLng: '', bioOnclick });
                   });
                 }
                 const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
@@ -2149,6 +2153,46 @@
         border-radius: 2px !important;
         padding: 0 1px !important;
       }
+
+      /* ── MODAL BIOMETRIA DO MONITOR ── */
+      #mon-bio-modal {
+        display: none; position: fixed; inset: 0;
+        z-index: 999999; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.6);
+      }
+      #mon-bio-modal.open { display: flex; }
+      #mon-bio-box {
+        background: var(--mon-bg); border-radius: 10px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+        width: 540px; max-width: 95vw; overflow: hidden;
+        animation: mon-fadein 0.18s ease;
+      }
+      #mon-bio-header {
+        background: #c0392b; color: #fff;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 16px; font-weight: 700; font-size: 14px;
+      }
+      #mon-bio-close {
+        background: none; border: none; color: #fff; font-size: 20px;
+        cursor: pointer; line-height: 1; padding: 0 4px;
+      }
+      #mon-bio-body { padding: 16px; }
+      #mon-bio-photos { display: flex; gap: 16px; margin-bottom: 14px; justify-content: center; }
+      #mon-bio-photos img { width: 140px; height: 140px; object-fit: cover; border-radius: 6px; border: 2px solid var(--mon-border); }
+      #mon-bio-info { font-size: 12px; line-height: 1.7; color: var(--mon-text); margin-bottom: 12px; }
+      #mon-bio-info strong { color: var(--mon-text-dim); font-weight: 600; }
+      #mon-bio-map { width: 100%; height: 220px; border: none; border-radius: 6px; }
+      #mon-bio-loading { text-align: center; padding: 40px; color: var(--mon-text-faint); font-size: 13px; }
+
+      /* ── ZOOM FOTO ── */
+      #mon-foto-zoom {
+        display: none; position: fixed; inset: 0; z-index: 9999999;
+        background: rgba(0,0,0,0.85); align-items: center; justify-content: center;
+        flex-direction: column; gap: 10px; cursor: zoom-out;
+      }
+      #mon-foto-zoom.open { display: flex; }
+      #mon-foto-zoom img { width: auto; height: auto; max-width: 95vw; max-height: 92vh; min-width: 300px; border-radius: 8px; box-shadow: 0 4px 40px rgba(0,0,0,0.6); object-fit: contain; }
+      #mon-foto-zoom span { color: #fff; font-size: 13px; font-weight: 600; opacity: 0.8; }
     `;
     document.head.appendChild(s);
   }
@@ -2283,7 +2327,116 @@
     `;
     document.body.appendChild(p);
     initControls(p);
+
+    // ── MODAL BIOMETRIA PRÓPRIO DO MONITOR ──────────────────────────────────────
+    if (!document.getElementById('mon-bio-modal')) {
+      const bm = document.createElement('div');
+      bm.id = 'mon-bio-modal';
+      bm.innerHTML = `
+        <div id="mon-bio-box">
+          <div id="mon-bio-header">
+            <span>Visualizar Biometria</span>
+            <button id="mon-bio-close" onclick="window._monFecharBio()">✕</button>
+          </div>
+          <div id="mon-bio-body">
+            <div id="mon-bio-loading">Carregando…</div>
+          </div>
+        </div>`;
+      bm.addEventListener('click', e => { if (e.target === bm) window._monFecharBio(); });
+      document.body.appendChild(bm);
+    }
   }
+
+  window._monFecharBio = function() {
+    const m = document.getElementById('mon-bio-modal');
+    if (m) m.classList.remove('open');
+  };
+
+  window._monZoomFoto = function(src, label) {
+    let z = document.getElementById('mon-foto-zoom');
+    if (!z) {
+      z = document.createElement('div');
+      z.id = 'mon-foto-zoom';
+      z.innerHTML = '<img id="mon-foto-zoom-img"><span id="mon-foto-zoom-label"></span>';
+      z.onclick = () => z.classList.remove('open');
+      document.body.appendChild(z);
+    }
+    document.getElementById('mon-foto-zoom-img').src = src;
+    document.getElementById('mon-foto-zoom-label').textContent = label;
+    z.classList.add('open');
+  };
+
+  window._monAbrirBio = function(bioUrl) {
+    const m = document.getElementById('mon-bio-modal');
+    if (!m) return;
+    const body = document.getElementById('mon-bio-body');
+    body.innerHTML = '<div id="mon-bio-loading">Carregando…</div>';
+    m.classList.add('open');
+
+    fetch('https://tsi-app.com/' + bioUrl, { credentials: 'include' })
+      .then(r => r.text())
+      .then(html => {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+
+        // Fotos — img 0 = biometria do momento, img 1 = cadastro facial
+        const allImgs = [...doc.querySelectorAll('img')].filter(i => {
+          const s = i.src || i.getAttribute('src') || '';
+          return s.includes('cloudfront') || s.includes('facial') || s.includes('biometry') || s.includes('registry');
+        });
+        const fotoBio      = allImgs.find(i => (i.alt || '').toLowerCase().includes('biometria') || (i.src||'').includes('biometry')) ;
+        const fotoCadastro = allImgs.find(i => i !== fotoBio);
+        const fotoB = fotoBio?.src || fotoBio?.getAttribute('src') || '';
+        const fotoC = fotoCadastro?.src || fotoCadastro?.getAttribute('src') || '';
+
+        // Dados texto
+        const textoEl = doc.querySelector('.card-body, .modal-body, form, body');
+        const texto = textoEl ? textoEl.innerText || textoEl.textContent : '';
+
+        // Lat/Lng
+        const latMatch  = texto.match(/[Ll]atitude[:\s]+(-?\d+\.\d+)/);
+        const lngMatch  = texto.match(/[Ll]ongitude[:\s]+(-?\d+\.\d+)/);
+        const lat = latMatch?.[1] || '';
+        const lng = lngMatch?.[1] || '';
+
+        // Campos
+        const chave  = (texto.match(/[Cc]have[:\s]+([^\n]+)/) || [])[1]?.trim() || '—';
+        const nome   = (texto.match(/[Nn]ome[:\s]+([^\n]+)/) || [])[1]?.trim() || '—';
+        const cpf    = (texto.match(/CPF[:\s]+([^\n]+)/) || [])[1]?.trim() || '—';
+        const dh     = (texto.match(/[Dd]ata\/[Hh]ora[:\s]+([^\n]+)/) || [])[1]?.trim() || '—';
+        const origem = (texto.match(/[Oo]rigem[:\s]+([^\n]+)/) || [])[1]?.trim() || '—';
+
+        const photoHtml = `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            ${fotoB ? `<img src="${fotoB}" onerror="this.style.display='none'" onclick="window._monZoomFoto(this.src,'Biometria')" style="width:110px;height:110px;object-fit:cover;border-radius:6px;border:2px solid var(--mon-border);cursor:zoom-in">` : '<div style="width:110px;height:110px;background:var(--mon-surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--mon-text-faint);font-size:10px">Sem foto</div>'}
+            <span style="font-size:10px;font-weight:600;color:var(--mon-text-dim)">Biometria</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            ${fotoC ? `<img src="${fotoC}" onerror="this.style.display='none'" onclick="window._monZoomFoto(this.src,'Cadastro Facial')" style="width:110px;height:110px;object-fit:cover;border-radius:6px;border:2px solid var(--mon-border);cursor:zoom-in">` : '<div style="width:110px;height:110px;background:var(--mon-surface3);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--mon-text-faint);font-size:10px">Sem cadastro</div>'}
+            <span style="font-size:10px;font-weight:600;color:var(--mon-text-dim)">Cadastro Facial</span>
+          </div>`;
+
+        const mapHtml = lat && lng
+          ? `<iframe id="mon-bio-map" src="https://maps.google.com/maps?q=${lat},${lng}&z=16&output=embed" allowfullscreen></iframe>`
+          : `<div style="height:80px;display:flex;align-items:center;justify-content:center;color:var(--mon-text-faint);font-size:12px">Coordenadas não disponíveis</div>`;
+
+        body.innerHTML = `
+          <div id="mon-bio-photos">
+            ${photoHtml}
+            <div id="mon-bio-info">
+              <div><strong>Chave:</strong> ${chave}</div>
+              <div><strong>Nome:</strong> ${nome}</div>
+              <div><strong>CPF:</strong> ${cpf}</div>
+              <div style="margin-top:6px;padding:6px 10px;background:var(--mon-amber-bg);border:1px solid var(--mon-amber-border);border-radius:6px;font-size:13px;font-weight:700;color:var(--mon-amber)">🕐 ${dh}</div>
+              <div style="margin-top:6px"><strong>Origem:</strong> ${origem}</div>
+              ${lat ? `<div><strong>Lat:</strong> ${lat} &nbsp; <strong>Lng:</strong> ${lng}</div>` : ''}
+            </div>
+          </div>
+          ${mapHtml}`;
+      })
+      .catch(() => {
+        document.getElementById('mon-bio-body').innerHTML = '<div style="padding:20px;color:var(--mon-red);text-align:center">Erro ao carregar biometria</div>';
+      });
+  };
 
 
   // ── BADGES ────────────────────────────────────────────────────────────────────
@@ -2621,6 +2774,12 @@
           const kmBg    = c.dist > 0 ? (c.dist < 1 ? 'var(--mon-green-bg)' : 'var(--mon-red-bg)') : '';
           const kmBorder= c.dist > 0 ? (c.dist < 1 ? 'var(--mon-green-border,rgba(22,163,74,0.25))' : 'var(--mon-red-border,rgba(220,38,38,0.25))') : '';
           const kmTag = c.dist > 0 ? `<span class="mon-list-row-tipo" style="background:${kmBg};color:${kmColor};border:1px solid ${kmBorder};border-radius:4px;padding:1px 6px;font-weight:600">📍 ${c.dist.toFixed(2)} km</span>` : '';
+          // Botão mapa: abre modal próprio do monitor com foto + mapa (sem reload)
+          // bioOnclick ex: "loadiframe('apontamentoVerBiometriaE_ABC_1','Visualizar Biometria',500,'modal700')"
+          const bioUrl = c.bioOnclick ? (c.bioOnclick.match(/loadiframe\('([^']+)'/) || [])[1] || '' : '';
+          const mapBtn = bioUrl
+            ? `<button onclick="event.stopPropagation();window._monAbrirBio('${bioUrl}')" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:0.75;transition:opacity 0.15s" title="Visualizar Biometria" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.75'">🗺️</button>`
+            : '';
           html += `
             <div class="mon-list-row">
               <div class="mon-list-row-name">${c.nome}</div>
@@ -2628,6 +2787,7 @@
                 <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
                 <span class="mon-list-row-time">${c.inicio}</span>
                 ${kmTag}
+                ${mapBtn}
               </div>
             </div>`;
         });
@@ -2655,7 +2815,12 @@
       })();
 
       if (mostrarFaltando) {
-        // ── modo FALTANDO ──
+        // ── modo FALTANDO — ordenado por datacad (mais recente primeiro) ──
+        const faltandoOrdenado = [...faltando].sort((a, b) => {
+          const parseDate = s => { try { const [dt,t]=(s||'').split(' ');const[dd,mm,aa]=dt.split('/');const[hh,mi]=(t||'00:00').split(':');return new Date(aa,mm-1,dd,hh,mi); } catch(e){return new Date(0);} };
+          return parseDate(b.datacad) - parseDate(a.datacad);
+        });
+        let sortado = false;
         html += `
           <div class="mon-list-panel mon-list-panel--warn">
             <div class="mon-list-panel-header">
@@ -2663,17 +2828,20 @@
               <span class="mon-list-panel-title">Faltando</span>
               <span class="mon-list-panel-count" style="background:var(--mon-red-bg);color:var(--mon-red)">${faltando.length}</span>
               ${(d.faltasConfirmadas||[]).length > 0 ? '<span onclick="event.stopPropagation();var b=document.getElementById(\'fc-'+op.id+'\');var a=this.querySelector(\'.fc-arr\');if(b.style.display===\'none\'){b.style.display=\'block\';a.style.transform=\'rotate(180deg)\';}else{b.style.display=\'none\';a.style.transform=\'\';}" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;margin-left:auto;background:var(--mon-red-bg);border:1px solid var(--mon-red-border,rgba(220,38,38,0.25));border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;color:var(--mon-red)">⚠ Faltas ('+((d.faltasConfirmadas||[]).length)+')<span class="fc-arr" style="transition:transform 0.2s;font-size:9px">▼</span></span>' : ''}
+              ${faltando.length > 0 ? `<span id="sort-btn-${op.id}" onclick="event.stopPropagation();var b=document.getElementById('sort-btn-${op.id}');var isSorted=b.dataset.sorted==='1';b.dataset.sorted=isSorted?'0':'1';b.style.color=isSorted?'':'var(--mon-accent)';b.style.transform=isSorted?'':'rotate(180deg)';var list=document.getElementById('falt-list-${op.id}');var rows=[...list.querySelectorAll('.mon-list-row')];rows.sort((a,b)=>isSorted?0:(b.dataset.ts||0)-(a.dataset.ts||0)).forEach(r=>list.appendChild(r));" style="display:inline-flex;align-items:center;cursor:pointer;user-select:none;${(d.faltasConfirmadas||[]).length===0?'margin-left:auto;':'margin-left:6px;'}background:var(--mon-surface2);border:1px solid var(--mon-border2);border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;color:var(--mon-text-dim);transition:transform 0.2s,color 0.2s" title="Ordenar por horário de cadastro">▼</span>` : ''}
             </div>
             <div id="fc-${op.id}" style="display:none;padding:6px 10px;border-bottom:1px solid var(--mon-border)">
               ${(d.faltasConfirmadas||[]).map(c => '<div class="mon-list-row" style="background:var(--mon-red-bg);border-radius:6px;margin-bottom:3px;border:none"><div class="mon-list-row-name" style="color:var(--mon-red)">'+c.nome+'</div><div class="mon-list-row-meta"><span class="mon-list-row-tipo">'+(c.tipo||'—')+'</span>'+(c.inicio ? '<span class="mon-list-row-tipo">🕐 '+c.inicio+'</span>' : '')+'</div></div>').join('')}
             </div>
-            <div class="mon-list-panel-body">`;
+            <div id="falt-list-${op.id}" class="mon-list-panel-body">`;
         if (faltando.length === 0) {
           html += `<div class="mon-list-empty" style="color:var(--mon-green)">✓ Todos apontados</div>`;
         } else {
+          const parseTs = s => { try { const [dt,t]=(s||'').split(' ');const[dd,mm,aa]=dt.split('/');const[hh,mi]=(t||'00:00').split(':');return new Date(aa,mm-1,dd,hh,mi).getTime(); } catch(e){return 0;} };
           faltando.forEach(c => {
+            const ts = parseTs(c.datacad);
             html += `
-              <div class="mon-list-row">
+              <div class="mon-list-row" data-ts="${ts}">
                 <div class="mon-list-row-name" style="color:var(--mon-red)">${c.nome}</div>
                 <div class="mon-list-row-meta">
                   <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
