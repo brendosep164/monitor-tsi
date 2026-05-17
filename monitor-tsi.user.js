@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      25.0
+// @version      26.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -483,7 +483,7 @@
                     let bioOnclick = '';
                     const bioA = row.querySelector('a[onclick*="VerBiometria"]');
                     if (bioA) bioOnclick = bioA.getAttribute('onclick') || '';
-                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), inicio, dist: distNum, latLng: '', bioOnclick });
+                    colaboradores.push({ nome, cpf, tipo: cells[2]?.textContent?.trim(), advisor: cells[3]?.textContent?.trim() || '', inicio, dist: distNum, bioOnclick });
                   });
                 }
                 const apontadosCPF = new Set(colaboradores.map(c => c.cpf));
@@ -2764,8 +2764,9 @@
             <span class="mon-list-panel-dot" style="background:var(--mon-green)"></span>
             <span class="mon-list-panel-title">Apontados</span>
             <span class="mon-list-panel-count" style="background:var(--mon-green-bg);color:var(--mon-green)">${colab.length}</span>
+            ${colab.length > 0 ? `<span id="adv-sort-${op.id}" onclick="event.stopPropagation();var b=document.getElementById('adv-sort-${op.id}');var on=b.dataset.on==='1';b.dataset.on=on?'0':'1';b.style.color=on?'':'var(--mon-accent)';b.style.transform=on?'':'rotate(180deg)';var list=document.getElementById('apt-list-${op.id}');var rows=[...list.querySelectorAll('.mon-list-row')];rows.sort((a,b)=>on?(a.dataset.nome||'').localeCompare(b.dataset.nome||''):(a.dataset.tipo==='ADVISOR'?-1:b.dataset.tipo==='ADVISOR'?1:(a.dataset.nome||'').localeCompare(b.dataset.nome||''))).forEach(r=>list.appendChild(r));" style="margin-left:auto;display:inline-flex;align-items:center;cursor:pointer;user-select:none;background:var(--mon-surface2);border:1px solid var(--mon-border2);border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;color:var(--mon-text-dim);transition:transform 0.2s,color 0.2s" title="Mostrar advisors primeiro">▼</span>` : ''}
           </div>
-          <div class="mon-list-panel-body">`;
+          <div id="apt-list-${op.id}" class="mon-list-panel-body">`;
       if (colab.length === 0) {
         html += `<div class="mon-list-empty">Nenhum apontamento ainda</div>`;
       } else {
@@ -2781,10 +2782,11 @@
             ? `<button onclick="event.stopPropagation();window._monAbrirBio('${bioUrl}')" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;opacity:0.75;transition:opacity 0.15s" title="Visualizar Biometria" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.75'">🗺️</button>`
             : '';
           html += `
-            <div class="mon-list-row">
+            <div class="mon-list-row" data-adv="${c.advisor||''}" data-nome="${c.nome||''}" data-tipo="${c.tipo||''}">
               <div class="mon-list-row-name">${c.nome}</div>
               <div class="mon-list-row-meta">
                 <span class="mon-list-row-tipo">${c.tipo||'—'}</span>
+                ${c.advisor ? `<span class="mon-list-row-tipo" style="color:var(--mon-text-dim)">👤 ${c.advisor.split(' ')[0]}</span>` : ''}
                 <span class="mon-list-row-time">${c.inicio}</span>
                 ${kmTag}
                 ${mapBtn}
