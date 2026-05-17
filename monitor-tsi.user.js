@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      24.0
+// @version      23.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -1155,7 +1155,7 @@
                          typeof d.escalado === 'number' && op.qtd > 0 &&
                          d.escalado >= op.qtd;
     const _nidEsc = 'esc_' + String(op.id);
-    if (_escCompleta && !d.todosConfirmados && !notifEscala.has(_nidEsc)) {
+    if (_escCompleta && !d.listaEnviada && !d.todosConfirmados && !notifEscala.has(_nidEsc)) {
       notifyEscala(op, d);
       notifEscala.add(_nidEsc);
       notifEscSave();
