@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      35.0
+// @version      27.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -665,14 +665,21 @@
               btnEl.style.opacity = '1';
               // ── Registra faltas usando lógica do WhatsApp (dist <= 1km) ──
               const _op = operations.find(o => o.id === opId);
+              let _faltasPendente = false;
               if (_op) {
                 const _d = apontCache[opId];
                 if (_d && _d !== 'loading') {
                   const _entregues = (_d.colaboradores || []).filter(c => c.dist === 0 || c.dist <= 1);
-                  _faltasRegistrar(_op, _entregues.length);
+                  const _faltas = Math.max(0, _op.qtd - _entregues.length);
+                  if (_faltas > 0) {
+                    _faltasPendente = true;
+                    _faltasRegistrar(_op, _entregues.length, function() {
+                      window.location.reload();
+                    });
+                  }
                 }
               }
-              setTimeout(() => window.location.reload(), 1500);
+              if (!_faltasPendente) setTimeout(() => window.location.reload(), 1500);
             }, 500);
           }, 50);
         } catch(e) { fail('erro'); clearTimeout(safetyTimer); }
@@ -3700,14 +3707,14 @@
     btn.textContent = total > 0 ? '📋 Faltas (' + total + ')' : '📋 Faltas';
   }
 
-  function _faltasRegistrar(op, entregueCount) {
+  function _faltasRegistrar(op, entregueCount, cb) {
     const nome = monNomeUsuario() || 'Anônimo';
     const agora = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
     const dataOp = monDataDaOp(op);
     const d = apontCache[op.id];
     const escalado = (d && d.escalado != null) ? d.escalado : op.qtd;
     const faltas = Math.max(0, op.qtd - entregueCount);
-    if (faltas === 0) return; // sem falta, não registra
+    if (faltas === 0) { if (cb) cb(); return; }
     const registro = {
       chave: op.chave,
       hora: op.hora || '—',
@@ -3720,7 +3727,7 @@
       registradoPor: nome
     };
     const novasFaltas = Object.assign({}, _faltasCache, { [op.chave]: registro });
-    _faltasSave(novasFaltas);
+    _faltasSave(novasFaltas, cb);
   }
 
   window._monAbrirFaltas = function() {
@@ -3811,20 +3818,24 @@
     const registros = Object.values(_faltasCache);
     if (!dataIni && !dataFim) return registros;
 
-    // Converte dataOp DD/MM/YYYY → YYYY-MM-DD para comparação
-    const toISO = s => { const p = (s||'').split('/'); return p.length === 3 ? p[2]+'-'+p[1]+'-'+p[0] : ''; };
+    // Converte dataOp DD/MM/YYYY → YYYY-MM-DD
+    const toISO = s => {
+      const p = (s || '').split('/');
+      return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : '';
+    };
 
-    // Monta timestamps de início e fim do filtro
-    const tsIni = dataIni ? new Date(dataIni + 'T' + (horaIni || '00:00') + ':00').getTime() : null;
-    const tsFim = dataFim ? new Date(dataFim + 'T' + (horaFim || '23:59') + ':00').getTime() : null;
+    // Monta datetime de comparação: se hora não preenchida, usa 00:00 pra início e 23:59 pra fim
+    const dtIni = dataIni ? new Date(dataIni + 'T' + (horaIni || '00:00') + ':00').getTime() : null;
+    const dtFim = dataFim ? new Date(dataFim + 'T' + (horaFim || '23:59') + ':00').getTime() : null;
 
     return registros.filter(r => {
-      if (!r.dataOp || !r.hora || r.hora === '—') return true;
-      const iso = toISO(r.dataOp);
-      if (!iso) return true;
-      const tsR = new Date(iso + 'T' + r.hora + ':00').getTime();
-      if (tsIni && tsR < tsIni) return false;
-      if (tsFim && tsR > tsFim) return false;
+      const iso = toISO(r.dataOp || '');
+      if (!iso) return true; // sem data no registro, deixa passar
+      // Hora da op: usa r.hora se válido, senão '00:00'
+      const horaR = (r.hora && r.hora !== '—') ? r.hora : '00:00';
+      const dtR = new Date(iso + 'T' + horaR + ':00').getTime();
+      if (dtIni && dtR < dtIni) return false;
+      if (dtFim && dtR > dtFim) return false;
       return true;
     });
   }
