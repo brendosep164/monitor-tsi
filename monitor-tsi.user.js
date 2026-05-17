@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Monitor Operacional TSI
 // @namespace    http://tampermonkey.net/
-// @version      31.0
+// @version      33.0
 // @description  Monitor de apontamentos em tempo real com escalados vs apontados
 // @author       TSI
 // @match        https://tsi-app.com/planejamento-operacional*
@@ -2372,13 +2372,23 @@
               <button onclick="window._monFecharFaltas()" style="width:28px;height:28px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
             </div>
           </div>
-          <div style="padding:10px 14px;background:var(--mon-surface);border-bottom:1px solid var(--mon-border);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Data:</span>
-            <input id="mon-faltas-data-ini" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
-            <span style="font-size:11px;color:var(--mon-text-faint)">até</span>
-            <input id="mon-faltas-data-fim" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
-            <button onclick="window._monFiltrarFaltas()" style="height:26px;padding:0 12px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--mon-font)">Filtrar</button>
-            <button onclick="document.getElementById('mon-faltas-data-ini').value='';document.getElementById('mon-faltas-data-fim').value='';window._monFiltrarFaltas();" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:12px;cursor:pointer;font-family:var(--mon-font)">Limpar</button>
+          <div style="padding:10px 14px;background:var(--mon-surface);border-bottom:1px solid var(--mon-border);display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Turno:</span>
+              <button onclick="window._monSelecionarTurno(1)" id="mon-faltas-t1" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mon-font)">T1 · 06:00~14:00</button>
+              <button onclick="window._monSelecionarTurno(2)" id="mon-faltas-t2" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mon-font)">T2 · 14:00~21:30</button>
+              <button onclick="window._monSelecionarTurno(3)" id="mon-faltas-t3" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mon-font)">T3 · 21:30~06:00</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">De:</span>
+              <input id="mon-faltas-data-ini" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+              <input id="mon-faltas-hora-ini" type="text" placeholder="00:00" maxlength="5" style="width:54px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+              <span style="font-size:11px;color:var(--mon-text-faint);white-space:nowrap">Até:</span>
+              <input id="mon-faltas-data-fim" type="date" style="height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+              <input id="mon-faltas-hora-fim" type="text" placeholder="23:59" maxlength="5" style="width:54px;height:26px;padding:0 7px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text);font-size:12px;font-family:var(--mon-font)" />
+              <button onclick="window._monFiltrarFaltas()" style="height:26px;padding:0 12px;border-radius:5px;border:1px solid var(--mon-border2);background:var(--mon-surface2);color:var(--mon-text-dim);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--mon-font)">Filtrar</button>
+              <button onclick="['mon-faltas-data-ini','mon-faltas-hora-ini','mon-faltas-data-fim','mon-faltas-hora-fim'].forEach(function(id){document.getElementById(id).value='';});document.querySelectorAll('#mon-faltas-t1,#mon-faltas-t2,#mon-faltas-t3').forEach(function(b){b.style.background='var(--mon-surface2)';b.style.color='var(--mon-text-dim)';b.style.borderColor='var(--mon-border2)';});window._monFiltrarFaltas();" style="height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--mon-border);background:transparent;color:var(--mon-text-faint);font-size:12px;cursor:pointer;font-family:var(--mon-font)">Limpar</button>
+            </div>
           </div>
           <div id="mon-faltas-body" style="flex:1;overflow-y:auto;padding:12px 14px;min-height:80px"></div>
           <div style="padding:10px 14px;border-top:1px solid var(--mon-border);background:var(--mon-surface);flex-shrink:0">
@@ -3747,18 +3757,74 @@
       .catch(() => { prompt('Copie o relatório:', texto); });
   };
 
+  // Turnos: T1 06:00~14:00, T2 14:00~21:30, T3 21:30~06:00 (T3 cruza meia-noite)
+  window._monSelecionarTurno = function(t) {
+    const dataIniEl = document.getElementById('mon-faltas-data-ini');
+    const dataFimEl = document.getElementById('mon-faltas-data-fim');
+    const horaIniEl = document.getElementById('mon-faltas-hora-ini');
+    const horaFimEl = document.getElementById('mon-faltas-hora-fim');
+    if (!dataIniEl) return;
+
+    // Data de início é manual — usa o que já está preenchido ou hoje
+    const dataIniVal = dataIniEl.value || new Date().toISOString().slice(0,10);
+    dataIniEl.value = dataIniVal;
+
+    const turnos = {
+      1: { hIni: '06:00', hFim: '14:00', addDay: 0 },
+      2: { hIni: '14:00', hFim: '21:30', addDay: 0 },
+      3: { hIni: '21:30', hFim: '06:00', addDay: 1 }
+    };
+    const turno = turnos[t];
+    if (!turno) return;
+
+    // Data fim: T3 = data início + 1 dia; T1/T2 = mesma data
+    const dIni = new Date(dataIniVal + 'T00:00:00');
+    const dFim = new Date(dIni);
+    dFim.setDate(dFim.getDate() + turno.addDay);
+
+    if (horaIniEl) horaIniEl.value = turno.hIni;
+    if (horaFimEl) horaFimEl.value = turno.hFim;
+    if (dataFimEl) dataFimEl.value = dFim.toISOString().slice(0,10);
+
+    // Destaca botão ativo
+    [1,2,3].forEach(function(n) {
+      const btn = document.getElementById('mon-faltas-t' + n);
+      if (!btn) return;
+      if (n === t) {
+        btn.style.background = 'var(--mon-red-bg)';
+        btn.style.color = 'var(--mon-red)';
+        btn.style.borderColor = 'rgba(220,38,38,0.3)';
+      } else {
+        btn.style.background = 'var(--mon-surface2)';
+        btn.style.color = 'var(--mon-text-dim)';
+        btn.style.borderColor = 'var(--mon-border2)';
+      }
+    });
+    window._monFiltrarFaltas();
+  };
+
   function _faltasFiltradas() {
-    const iniVal = (document.getElementById('mon-faltas-data-ini') || {}).value || '';
-    const fimVal = (document.getElementById('mon-faltas-data-fim') || {}).value || '';
+    const dataIni = (document.getElementById('mon-faltas-data-ini') || {}).value || '';
+    const horaIni = (document.getElementById('mon-faltas-hora-ini') || {}).value || '';
+    const dataFim = (document.getElementById('mon-faltas-data-fim') || {}).value || '';
+    const horaFim = (document.getElementById('mon-faltas-hora-fim') || {}).value || '';
     const registros = Object.values(_faltasCache);
-    if (!iniVal && !fimVal) return registros;
-    // Converte DD/MM/YYYY para YYYY-MM-DD para comparação
-    const toISO = s => { const [d,m,a] = s.split('/'); return a + '-' + m + '-' + d; };
+    if (!dataIni && !dataFim) return registros;
+
+    // Converte dataOp DD/MM/YYYY → YYYY-MM-DD para comparação
+    const toISO = s => { const p = (s||'').split('/'); return p.length === 3 ? p[2]+'-'+p[1]+'-'+p[0] : ''; };
+
+    // Monta timestamps de início e fim do filtro
+    const tsIni = dataIni ? new Date(dataIni + 'T' + (horaIni || '00:00') + ':00').getTime() : null;
+    const tsFim = dataFim ? new Date(dataFim + 'T' + (horaFim || '23:59') + ':00').getTime() : null;
+
     return registros.filter(r => {
-      if (!r.dataOp) return true;
-      const dataR = toISO(r.dataOp);
-      if (iniVal && dataR < iniVal) return false;
-      if (fimVal && dataR > fimVal) return false;
+      if (!r.dataOp || !r.hora || r.hora === '—') return true;
+      const iso = toISO(r.dataOp);
+      if (!iso) return true;
+      const tsR = new Date(iso + 'T' + r.hora + ':00').getTime();
+      if (tsIni && tsR < tsIni) return false;
+      if (tsFim && tsR > tsFim) return false;
       return true;
     });
   }
