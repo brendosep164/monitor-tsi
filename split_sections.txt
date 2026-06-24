@@ -1,0 +1,178 @@
+20:   // -- LOGGER CENTRALIZADO -------------------------------------------------------
+83:   // -- Redirect imediato: veio de modal de falta/edição que jogou para pedidoE_ --
+103:   // -- Botão flutuante de Pedidos em tsi-app.com/pedidos_1 ------------------
+121:   // -- fim botão pedidos -----------------------------------------------------
+124:   // -- Ajuste de tela cheia (integrado do content.js da extensão) ----------
+160:   // -- fim ajuste de tela ---------------------------------------------------
+171:   // --- ESTADO ----------------------------------------------------------------
+173:   // -- MONTAGEM DE PRINT (vale) --------------------------------------------------
+494:   // -- Fetch/parse da tabela de Advisors (seção CONVOCAÇÃO da página _1) --------
+726:   // -- FILTRO / ORDENAÇÃO ------------------------------------------------------
+747:   // -- NOTIFICAÇÕES DE ESCALA COMPLETA -----------------------------------------
+760:   // -- NOTIFICAÇÕES DE MUDANÇA DE ESCALA (bolinha vermelha) ---------------------
+768:   // -- HISTÓRICO DE NOTIFICAÇÕES (cache local) ----------------------------------
+780:   // -- FIREBASE CONFIG (migrado do Supabase) ------------------------------------
+830:   // -- CRIPTOGRAFIA AES-GCM (dados em repouso no Firebase) ---------------------
+896:   // -- HASH DE CPF (SHA-256 truncado) -------------------------------------------
+938:   // -- HISTÓRICO DE REPORTS ------------------------------------------------------
+1237:   // -- MODAL DE DETALHE DO HISTÓRICO --------------------------------------------
+1420:     // -- Atualização contínua enquanto o modal estiver aberto --
+1462:   // -- SNAPSHOT DE ESCALADOS (compartilhado via Supabase — sincroniza entre usuários) --
+1601:   // -- CACHE PERSISTENTE (sessionStorage) --------------------------------------
+1631:   // -- IFRAMES -----------------------------------------------------------------
+1677:   // -- JANELA ------------------------------------------------------------------
+1738:   // -- PARSER DE OPS ------------------------------------------------------------
+1790:   // -- NOTIFICAÇÕES -------------------------------------------------------------
+1871:   // -- PROGRESSO ----------------------------------------------------------------
+1895:   // -- FETCH COM DOMPARSER (substitui iframes) ----------------------------------
+1931:   // -- DIAGNÓSTICO DE REQUISIÇÕES -----------------------------------------------
+1969:   // -- FILA COM DEDUPLICAÇÃO ----------------------------------------------------
+2031:         // -- Snapshot inicial: salva escalados se listaEnviada e ainda não tem snapshot
+2106:             // -- Identifica colunas ADTO TR e ADTO AL --------------------------------
+2146:             // -- Extrai dados de ADTO -------------------------------------------------
+2201:             // -- Varre tbody ----------------------------------------------------------
+2387:   // -- ENVIAR ESCALA -------------------------------------------------------------
+2437:               // -- Atualiza snapshot com a lista atual de escalados
+2481:   // -- TOAST NOTIFICATION --------------------------------------------------------
+2564:   // -- ENVIAR REPORT -------------------------------------------------------------
+2652:               // -- Salva no histórico ------------------------------------------
+2670:               // -- Registra faltas usando lógica do WhatsApp (dist <= 1km) --
+2691:   // -- ENVIO EM LOTE -------------------------------------------------------------
+2723:     // -- HEADER
+2740:     // -- TIPO DE ENVIO
+2768:     // -- CONTROLES SELEÇÃO
+2779:     // -- LISTA DE OPS
+2784:     // -- FOOTER
+2905:     // -- Monta resumo das ops selecionadas -------------------------------------
+2922:     // -- Modal de confirmação ---------------------------------------------------
+3079:   // -- GERAR RELATÓRIO WHATSAPP --------------------------------------------------
+3143:   // -- PRINT APONTAMENTOS --------------------------------------------------------
+3194:                 // -- Acha o contador "X apontamento(s) registrado(s)"
+3215:                 // -- Acha a tabela principal
+3222:                 // -- Encontra coluna DATA para saber onde cortar à direita
+3236:                 // -- Calcula área de recorte
+3255:                 // -- Captura com html2canvas diretamente no documento do iframe
+3282:                   // -- Tenta clipboard; se falhar faz download automático
+3343:   // -- FILTRO / SORT -------------------------------------------------------------
+3513:   // -- COLAPSO DE GRUPOS (seções de horário) ------------------------------------
+3551:   // -- ATUALIZAÇÃO MANUAL --------------------------------------------------------
+3578:   // -- TEMA CLARO / ESCURO -------------------------------------------------------
+3599:   // -- TOGGLE DE LAYOUT ----------------------------------------------------------
+3622:   // -- POLL DE OBS A CADA 5s ----------------------------------------------------
+3652:   // -- ATUALIZAÇÃO SILENCIOSA ----------------------------------------------------
+3894:     // -- Atualiza highlight/cor da linha --------------------------------------
+4002:   // -- DRAG / RESIZE / MINIMIZE --------------------------------------------------
+4025:     // -- RESIZE (alça esquerda) ----------------------------------------------
+4055:     // -- DRAG (header) -------------------------------------------------------
+4255:   // -- BOTÃO FLUTUANTE -----------------------------------------------------------
+4266:   // -- ESTILOS -------------------------------------------------------------------
+6571:   // -- MODAL DE DETALHE PREMIUM ------------------------------------------------
+7077:       // -- LAYOUT COMPACTO: mesma lógica de buckets do modo normal, sem headers de grupo --
+7112:       // -- LAYOUT NORMAL: grupos por bucket --
+7328:     // -- Circular gauge helper -------------------------------------------------
+7472:   // -- PAINEL --------------------------------------------------------------------
+7782:     // -- MODAL BIOMETRIA PRÓPRIO DO MONITOR --------------------------------------
+7800:     // -- MODAL FALTAS -----------------------------------------------------------
+7929:   // -- BUSCA DE COLABORADOR -----------------------------------------------------
+8062:   // -- fim busca colaborador --------------------------------------------------
+8183:   // -- BADGES --------------------------------------------------------------------
+8261:   // -- MÉTRICAS ------------------------------------------------------------------
+8296:   // -- VALES: executa o onclick real capturado do sistema -----------------------
+8372:   // -- GERAR FALTA (abre modal nativo do sistema sobrepondo o monitor) ----------
+8412:   // -- ABRIR MODAL DE AÇÃO (apontados / escalados / faltando) -------------------
+8533:   // -- RENDER --------------------------------------------------------------------
+8539:     // -- Contagens por filtro -------------------------------------------------
+8581:     // ------------------------------------------------------------------------
+8636:       // -- HIGHLIGHT DE LINHA --------------------------------------------------
+8961:     // -- BOTÃO VALES (antes das listas) ----------------------------------------
+9036:       // -- APONTADOS (esquerda) --
+9106:       // -- FALTANDO ou ESCALADOS (direita) --
+9127:         // -- modo FALTANDO — ordenado por datacad (mais recente primeiro) --
+9182:         // -- modo ESCALADOS (falta mais de 1h) --
+9237:   // -- MODAL VALES --------------------------------------------------------------
+9313:     // -- Barra de resumo ------------------------------------------------------
+9335:     // -- Célula de ADTO -------------------------------------------------------
+9421:   // -- MODAL LISTA (apontados / escalados / faltando) ----------------------------
+9726:   // -- PRINT ESCALA (a partir do modal de vales) ---------------------------------
+9930:   // -- VISIBILIDADE DAS MÉTRICAS ------------------------------------------------
+9989:   // -- TOGGLE --------------------------------------------------------------------
+10005:   // -- AMPULHETA ANIMADA (countdown visual) --------------------------------------
+10045:   // -- TIMER ALINHADO AO MINUTO FECHADO -----------------------------------------
+10088:   // -- DETECTA PÁGINA ATUAL DA URL ---------------------------------------------
+10231:   // -- SELETOR DE PÁGINAS --------------------------------------------------------
+10239:   // -- DETECTA NAVEGAÇÃO SPA (mudança de URL sem reload) ------------------------
+10309:   // -- INIT ----------------------------------------------------------------------
+10322:     // -- Perf: limpa will-change do header após a animação de entrada (120ms)
+10330:     // -- Restaura monPaginas ANTES de startMonitor para que fetchOperations use o valor correto --
+10351:     // -- Restaura estado completo do monitor após qualquer reload do TSI ----------
+10444:     // -- Reabre op expandida se a página recarregou após enviar escala/report --
+10483:     // -- Reabre modal de vales se a página recarregou após gerar um vale --
+10562:   // -- Inicialização dos dados Firebase (deve ocorrer após _fbDb estar pronto) --
+10591:   // -- CONTATOS (Firebase — migrado do Supabase) --------------------------------
+10626:   // -- GERENCIADOR DE CONTATOS ---------------------------------------------------
+10634:     // -- Monta estrutura fixa do modal (só o #mgc-body é atualizado) --
+10668:     // -- Fecha ao clicar no overlay (fora do box) --
+10674:     // -- Cria uma row DOM para uma unidade --
+10724:     // -- Renderiza rows iniciais --
+10730:     // -- Botão Nova Unidade --
+10741:     // -- Botão Salvar --
+10791:   // -- FIM GERENCIADOR DE CONTATOS -----------------------------------------------
+10793:   // -- MENSAGENS AUTOMÁTICAS DE ESCALA / APONTAMENTOS ---------------------------
+10909:   // -- GERENCIADOR DE CONTATOS DOS LÍDERES --------------------------------------
+11048:   // -- FIM GERENCIADOR DE LÍDERES ------------------------------------------------
+11050:   // -- MODAL DE CONFIGURAÇÕES ----------------------------------------------------
+11164:   // -- PAINEL DE SAÚDE DO SERVIDOR TSI ------------------------------------------
+11348:   // -- FIM MODAL DE CONFIGURAÇÕES ------------------------------------------------
+11350:   // -- HISTÓRICO DE NOTIFICAÇÕES -------------------------------------------------
+11442:   // -- FIM HISTÓRICO DE NOTIFICAÇÕES --------------------------------------------
+11452:   // -- NOME DO USUÁRIO LOGADO ----------------------------------------------------
+11495:   // -- SAUDAÇÃO DO DIA -----------------------------------------------------------
+11509:   // -- SAUDAÇÃO ------------------------------------------------------------------
+11542:   // -- MENSAGEM WHATSAPP DE ESCALA -----------------------------------------------
+11571:   // -- MERGE PDF ASSINATURAS -----------------------------------------------------
+11572:   // -- ABRIR PDF ASSINATURA (sempre pega do cache atualizado) -------------------
+11602:   // -- MERGE PDF ASSINATURAS (sempre pega do cache atualizado) ------------------
+11803:   // -- GMAIL DE ESCALA -----------------------------------------------------------
+11851:   // -- OBS BALÃO ----------------------------------------------------------------
+11885:   // -- SNAP BIN — mesmo bin das obs (chave "escaladosSnap") ----------------------
+11888:   // -- FALTAS BIN (JSONBin separado, compartilhado) ------------------------------
+12607:   // -- FEATURE: WhatsApp do Líder --------------------------------------------
+12640:   // -- JSONBin (mesmo BD do index.html) -------------------------------------
+12677:   // -- PONTO DE ENTRADA: clique no botão do líder --------------------------------
+12820:   // -- RELATÓRIO DE ESCALA (mantido para compatibilidade — abre modal combinado) -
+12823:   // -- MODAL COMBINADO: RELATÓRIOS ----------------------------------------------
+13287:   // -- MÓDULO: RELATÓRIO DE PEDIDOS (upload XLSX) ---------------------------
+13299:   // -- Lê o XLSX usando a API nativa (FileReader + ZIP manual) --------------
+13358:         // -- Ignora: STATUS = "Cancelada" ou CLIENTE = "TSI ADM" --
+13413:   // -- Gerar os XLSXs a partir dos dados já lidos ---------------------------
+13493:     // -- Totais --
+13504:     // -- helpers de estilo reutilizáveis --------------------------------------
+13513:     // -- ARQUIVO 1: Faltas — modelo Relatório_de_Faltas.xlsx ------------------
+13530:     // -- ARQUIVO 2: Top 3 — modelo TOP_3.xlsx ---------------------------------
+13561:     // -- ARQUIVO 3: Pedidos com cores --
+13611:   // -- Gerador XLSX com estilos ---------------------------------------------
+13625:     // -- IDENTIDADE VISUAL CORPORATIVA — Olive Drab Executive Theme v2 --------
+13935: // -- GERADOR XLSX — MODELO DE REFERÊNCIA (template base64) ----------------
+13938:   // --------------------------------------------------------------------------
+13974:       // -- Relatório de Faltas ----------------------------------------------
+14076:       // -- TOP 3 ------------------------------------------------------------
+14100:       // -- Bloco NO SHOW --------------------------------------------------
+14142:       // -- Bloco A MAIS ---------------------------------------------------
+14173:     // -- FIM MÓDULO RELATÓRIO DE PEDIDOS --------------------------------------
+14233:         // -- ANALISA ESCALA DAS OPS DO PERÍODO ANTES DE GERAR O RELATÓRIO -----
+14403:   // -- FIM RELATÓRIOS COMBINADOS ---------------------------------------------
+14407:   // -- RELATÓRIO DE TURNO ---------------------------------------------------
+14543:   // -- ESTADO DO RELATÓRIO DE TURNO --------------------------------------------
+14555:   // -- PERSISTÊNCIA -------------------------------------------------------------
+14666:   // -- CONSTRU\u00c7\u00c3O DOS CARDS ------------------------------------------------------
+14738:   // -- ADD / REMOVE --------------------------------------------------------------
+14790:   // -- DRAG-AND-DROP -------------------------------------------------------------
+14847:   // -- FIM DnD -------------------------------------------------------------------
+14929:   // -- FIM RELATÓRIO DE TURNO -----------------------------------------------
+14931:   // -- MÓDULO: SAÍDA ANTECIPADA -------------------------------------------------
+15512:     // -- Gerador de XLSX nativo via SpreadsheetML (suporta cores e formatação sem lib extra) --
+15740:     // -- Monta os dados das abas --
+15792:     // -- FIM MÓDULO SAÍDA ANTECIPADA ----------------------------------------------
+15794:   // -- MÓDULO: HORA EXTRA -------------------------------------------------------
+16070:   // -- ATRIBUIÇÃO EM MASSA DE HE ------------------------------------------------
+16269:   // -- FIM MÓDULO HORA EXTRA ----------------------------------------------------
